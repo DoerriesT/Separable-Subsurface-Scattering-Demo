@@ -1,0 +1,102 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="src">
+      <UniqueIdentifier>{1cad52a3-9ec8-4b43-9a5f-b223197d5c08}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\vulkan">
+      <UniqueIdentifier>{e732575d-8023-4426-8a08-55d352716c45}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\utility">
+      <UniqueIdentifier>{e47e188f-e35b-4c5b-86a8-c8959806ed79}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\window">
+      <UniqueIdentifier>{4a5f243e-e7cf-428e-aeda-c7d1eac74291}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\input">
+      <UniqueIdentifier>{9673f507-7486-4be3-9181-a56249712c29}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\vulkan\pass">
+      <UniqueIdentifier>{a0608a56-bb9d-4d8b-b8b6-7444f297f48b}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\main.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\vulkan\volk.c">
+      <Filter>src\vulkan</Filter>
+    </ClCompile>
+    <ClCompile Include="src\utility\Utility.cpp">
+      <Filter>src\utility</Filter>
+    </ClCompile>
+    <ClCompile Include="src\utility\ContainerUtility.cpp">
+      <Filter>src\utility</Filter>
+    </ClCompile>
+    <ClCompile Include="src\window\Window.cpp">
+      <Filter>src\window</Filter>
+    </ClCompile>
+    <ClCompile Include="src\input\UserInput.cpp">
+      <Filter>src\input</Filter>
+    </ClCompile>
+    <ClCompile Include="src\utility\Timer.cpp">
+      <Filter>src\utility</Filter>
+    </ClCompile>
+    <ClCompile Include="src\vulkan\VKContext.cpp">
+      <Filter>src\vulkan</Filter>
+    </ClCompile>
+    <ClCompile Include="src\vulkan\VKRenderer.cpp">
+      <Filter>src\vulkan</Filter>
+    </ClCompile>
+    <ClCompile Include="src\vulkan\pass\VKLightingPass.cpp">
+      <Filter>src\vulkan\pass</Filter>
+    </ClCompile>
+    <ClCompile Include="src\vulkan\VKPipelineCache.cpp">
+      <Filter>src\vulkan</Filter>
+    </ClCompile>
+    <ClCompile Include="src\vulkan\VKPipeline.cpp">
+      <Filter>src\vulkan</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\vulkan\volk.h">
+      <Filter>src\vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utility\Utility.h">
+      <Filter>src\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utility\ContainerUtility.h">
+      <Filter>src\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="src\window\Window.h">
+      <Filter>src\window</Filter>
+    </ClInclude>
+    <ClInclude Include="src\input\IInputListener.h">
+      <Filter>src\input</Filter>
+    </ClInclude>
+    <ClInclude Include="src\input\InputTokens.h">
+      <Filter>src\input</Filter>
+    </ClInclude>
+    <ClInclude Include="src\input\UserInput.h">
+      <Filter>src\input</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utility\Timer.h">
+      <Filter>src\utility</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vulkan\VKContext.h">
+      <Filter>src\vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vulkan\VKRenderer.h">
+      <Filter>src\vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vulkan\pass\VKLightingPass.h">
+      <Filter>src\vulkan\pass</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vulkan\VKPipelineCache.h">
+      <Filter>src\vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vulkan\VKPipeline.h">
+      <Filter>src\vulkan</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>

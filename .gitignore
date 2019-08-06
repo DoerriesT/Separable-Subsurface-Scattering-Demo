@@ -24,9 +24,18 @@
 *.lai
 *.la
 *.a
-*.lib
+#*.lib
 
 # Executables
 *.exe
 *.out
 *.app
+
+
+.vs
+/Debug
+/Release
+/x64
+/SubsurfaceScattering/Debug
+/SubsurfaceScattering/Release
+/SubsurfaceScattering/x64
