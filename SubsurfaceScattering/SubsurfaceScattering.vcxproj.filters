@@ -16,8 +16,8 @@
     <Filter Include="src\input">
       <UniqueIdentifier>{9673f507-7486-4be3-9181-a56249712c29}</UniqueIdentifier>
     </Filter>
-    <Filter Include="src\vulkan\pass">
-      <UniqueIdentifier>{a0608a56-bb9d-4d8b-b8b6-7444f297f48b}</UniqueIdentifier>
+    <Filter Include="src\vulkan\pipelines">
+      <UniqueIdentifier>{48ec4212-e305-46ed-bb23-fa341e1a761d}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -45,16 +45,22 @@
     <ClCompile Include="src\vulkan\VKContext.cpp">
       <Filter>src\vulkan</Filter>
     </ClCompile>
-    <ClCompile Include="src\vulkan\VKRenderer.cpp">
+    <ClCompile Include="src\vulkan\SwapChain.cpp">
       <Filter>src\vulkan</Filter>
     </ClCompile>
-    <ClCompile Include="src\vulkan\pass\VKLightingPass.cpp">
-      <Filter>src\vulkan\pass</Filter>
-    </ClCompile>
-    <ClCompile Include="src\vulkan\VKPipelineCache.cpp">
+    <ClCompile Include="src\vulkan\Renderer.cpp">
       <Filter>src\vulkan</Filter>
     </ClCompile>
-    <ClCompile Include="src\vulkan\VKPipeline.cpp">
+    <ClCompile Include="src\vulkan\pipelines\LightingPipeline.cpp">
+      <Filter>src\vulkan\pipelines</Filter>
+    </ClCompile>
+    <ClCompile Include="src\vulkan\pipelines\ShaderModule.cpp">
+      <Filter>src\vulkan\pipelines</Filter>
+    </ClCompile>
+    <ClCompile Include="src\vulkan\pipelines\ShadowPipeline.cpp">
+      <Filter>src\vulkan\pipelines</Filter>
+    </ClCompile>
+    <ClCompile Include="src\vulkan\VKUtility.cpp">
       <Filter>src\vulkan</Filter>
     </ClCompile>
   </ItemGroup>
@@ -86,16 +92,22 @@
     <ClInclude Include="src\vulkan\VKContext.h">
       <Filter>src\vulkan</Filter>
     </ClInclude>
-    <ClInclude Include="src\vulkan\VKRenderer.h">
+    <ClInclude Include="src\vulkan\SwapChain.h">
       <Filter>src\vulkan</Filter>
     </ClInclude>
-    <ClInclude Include="src\vulkan\pass\VKLightingPass.h">
-      <Filter>src\vulkan\pass</Filter>
-    </ClInclude>
-    <ClInclude Include="src\vulkan\VKPipelineCache.h">
+    <ClInclude Include="src\vulkan\Renderer.h">
       <Filter>src\vulkan</Filter>
     </ClInclude>
-    <ClInclude Include="src\vulkan\VKPipeline.h">
+    <ClInclude Include="src\vulkan\pipelines\LightingPipeline.h">
+      <Filter>src\vulkan\pipelines</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vulkan\pipelines\ShaderModule.h">
+      <Filter>src\vulkan\pipelines</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vulkan\pipelines\ShadowPipeline.h">
+      <Filter>src\vulkan\pipelines</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vulkan\VKUtility.h">
       <Filter>src\vulkan</Filter>
     </ClInclude>
   </ItemGroup>

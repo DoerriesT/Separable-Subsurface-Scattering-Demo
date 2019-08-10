@@ -2,7 +2,7 @@
 #include "window/Window.h"
 #include "input/UserInput.h"
 #include "utility/Timer.h"
-#include "vulkan/VKRenderer.h"
+#include "vulkan/Renderer.h"
 
 using namespace sss;
 
@@ -10,7 +10,7 @@ int main()
 {
 	Window window(800, 600, "Subsurface Scattering");
 	UserInput userInput;
-	vulkan::VKRenderer renderer(window.getWindowHandle());
+	vulkan::Renderer renderer(window.getWindowHandle(), 800, 600);
 
 	window.addInputListener(&userInput);
 

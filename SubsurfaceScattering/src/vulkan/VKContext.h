@@ -23,6 +23,7 @@ namespace sss
 			VKContext &operator= (const VKContext &&) = delete;
 			~VKContext();
 			VkDevice getDevice() const;
+			VkPhysicalDevice getPhysicalDevice() const;
 			VkPhysicalDeviceFeatures getDeviceFeatures() const;
 			VkPhysicalDeviceFeatures getEnabledDeviceFeatures() const;
 			VkPhysicalDeviceProperties getDeviceProperties() const;
@@ -43,9 +44,6 @@ namespace sss
 			uint32_t m_graphicsQueueFamilyIndex;
 			VkCommandPool m_graphicsCommandPool;
 			VkSurfaceKHR m_surface;
-			VkDebugReportCallbackEXT m_debugCallback;
-			VkSemaphore m_imageAvailableSemaphore;
-			VkSemaphore m_renderFinishedSemaphore;
 			VKSwapChainSupportDetails m_swapChainSupportDetails;
 			VkDebugUtilsMessengerEXT m_debugUtilsMessenger;
 		};

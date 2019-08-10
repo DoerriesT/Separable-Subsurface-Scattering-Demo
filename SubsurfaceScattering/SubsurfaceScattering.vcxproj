@@ -105,7 +105,7 @@
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>spirv-cross-core.lib;glfw3.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>glfw3.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -136,7 +136,7 @@
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>spirv-cross-core.lib;glfw3.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>glfw3.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -145,11 +145,13 @@
     <ClCompile Include="src\utility\ContainerUtility.cpp" />
     <ClCompile Include="src\utility\Timer.cpp" />
     <ClCompile Include="src\utility\Utility.cpp" />
-    <ClCompile Include="src\vulkan\pass\VKLightingPass.cpp" />
+    <ClCompile Include="src\vulkan\pipelines\LightingPipeline.cpp" />
+    <ClCompile Include="src\vulkan\pipelines\ShaderModule.cpp" />
+    <ClCompile Include="src\vulkan\pipelines\ShadowPipeline.cpp" />
+    <ClCompile Include="src\vulkan\SwapChain.cpp" />
     <ClCompile Include="src\vulkan\VKContext.cpp" />
-    <ClCompile Include="src\vulkan\VKPipeline.cpp" />
-    <ClCompile Include="src\vulkan\VKPipelineCache.cpp" />
-    <ClCompile Include="src\vulkan\VKRenderer.cpp" />
+    <ClCompile Include="src\vulkan\Renderer.cpp" />
+    <ClCompile Include="src\vulkan\VKUtility.cpp" />
     <ClCompile Include="src\vulkan\volk.c" />
     <ClCompile Include="src\window\Window.cpp" />
   </ItemGroup>
@@ -160,11 +162,13 @@
     <ClInclude Include="src\utility\ContainerUtility.h" />
     <ClInclude Include="src\utility\Timer.h" />
     <ClInclude Include="src\utility\Utility.h" />
-    <ClInclude Include="src\vulkan\pass\VKLightingPass.h" />
-    <ClInclude Include="src\vulkan\VKPipeline.h" />
-    <ClInclude Include="src\vulkan\VKPipelineCache.h" />
-    <ClInclude Include="src\vulkan\VKRenderer.h" />
+    <ClInclude Include="src\vulkan\pipelines\LightingPipeline.h" />
+    <ClInclude Include="src\vulkan\pipelines\ShaderModule.h" />
+    <ClInclude Include="src\vulkan\pipelines\ShadowPipeline.h" />
+    <ClInclude Include="src\vulkan\SwapChain.h" />
+    <ClInclude Include="src\vulkan\Renderer.h" />
     <ClInclude Include="src\vulkan\VKContext.h" />
+    <ClInclude Include="src\vulkan\VKUtility.h" />
     <ClInclude Include="src\vulkan\volk.h" />
     <ClInclude Include="src\window\Window.h" />
   </ItemGroup>

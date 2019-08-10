@@ -283,28 +283,18 @@ sss::vulkan::VKContext::VKContext(void *windowHandle)
 			util::fatalExit("Failed to create graphics command pool!", EXIT_FAILURE);
 		}
 	}
-
-	// create semaphores
-	{
-		VkSemaphoreCreateInfo semaphoreInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-
-		if (vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_imageAvailableSemaphore) != VK_SUCCESS
-			|| vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_renderFinishedSemaphore) != VK_SUCCESS)
-		{
-			util::fatalExit("Failed to create semaphores!", -1);
-		}
-	}
 }
 
 sss::vulkan::VKContext::~VKContext()
 {
+	vkDestroyCommandPool(m_device, m_graphicsCommandPool, nullptr);
 	vkDestroyDevice(m_device, nullptr);
 
 	if (g_vulkanDebugCallBackEnabled)
 	{
-		if (auto func = (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(m_instance, "vkDestroyDebugReportCallbackEXT"))
+		if (auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(m_instance, "vkDestroyDebugUtilsMessengerEXT"))
 		{
-			func(m_instance, m_debugCallback, nullptr);
+			func(m_instance, m_debugUtilsMessenger, nullptr);
 		}
 	}
 
@@ -315,6 +305,11 @@ sss::vulkan::VKContext::~VKContext()
 VkDevice sss::vulkan::VKContext::getDevice() const
 {
 	return m_device;
+}
+
+VkPhysicalDevice sss::vulkan::VKContext::getPhysicalDevice() const
+{
+	return m_physicalDevice;
 }
 
 VkPhysicalDeviceFeatures sss::vulkan::VKContext::getDeviceFeatures() const
