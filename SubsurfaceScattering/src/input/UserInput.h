@@ -40,6 +40,7 @@ namespace sss
 		glm::vec2 m_previousMousePos;
 		glm::vec2 m_mousePosDelta;
 		glm::vec2 m_scrollOffset;
+		bool m_scrolled;
 		std::vector<IKeyListener*> m_keyListeners;
 		std::vector<ICharListener*> m_charListeners;
 		std::vector<IScrollListener*> m_scrollListeners;

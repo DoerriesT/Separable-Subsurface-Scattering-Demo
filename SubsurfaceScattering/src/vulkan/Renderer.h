@@ -1,6 +1,7 @@
 #pragma once
 #include "VKContext.h"
 #include "SwapChain.h"
+#include <glm/mat4x4.hpp>
 
 namespace sss
 {
@@ -11,7 +12,7 @@ namespace sss
 		public:
 			explicit Renderer(void *windowHandle, uint32_t width, uint32_t height);
 			~Renderer();
-			void render();
+			void render(const glm::mat4 &viewProjection);
 
 		private:
 			enum 

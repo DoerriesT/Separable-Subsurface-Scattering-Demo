@@ -1,16 +1,29 @@
 #include "LightingPipeline.h"
 #include "utility/Utility.h"
 #include "ShaderModule.h"
+#include <glm/mat4x4.hpp>
+
+namespace
+{
+	using namespace glm;
+	struct PushConsts
+	{
+		mat4 viewProjectionMatrix;
+		uint materialIndex;
+	};
+}
 
 std::pair<VkPipeline, VkPipelineLayout> sss::vulkan::LightingPipeline::create(VkDevice device, VkRenderPass renderPass, uint32_t subpassIndex, uint32_t setLayoutCount, VkDescriptorSetLayout *setLayouts)
 {
 	VkPipelineLayout pipelineLayout;
 
+	VkPushConstantRange pushConstantRange{ VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConsts) };
+
 	VkPipelineLayoutCreateInfo layoutCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
 	layoutCreateInfo.setLayoutCount = setLayoutCount;
 	layoutCreateInfo.pSetLayouts = setLayouts;
-	//layoutCreateInfo.pushConstantRangeCount = reflectionInfo.m_pushConstants.m_size > 0 ? 1 : 0;
-	//layoutCreateInfo.pPushConstantRanges = reflectionInfo.m_pushConstants.m_size > 0 ? &pushConstantRange : nullptr;
+	layoutCreateInfo.pushConstantRangeCount = 1;
+	layoutCreateInfo.pPushConstantRanges = &pushConstantRange;
 
 	if (vkCreatePipelineLayout(device, &layoutCreateInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
 	{

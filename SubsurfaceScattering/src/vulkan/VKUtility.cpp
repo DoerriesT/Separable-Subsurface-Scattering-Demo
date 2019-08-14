@@ -1,5 +1,37 @@
 #include "VKUtility.h"
 
+VkCommandBuffer sss::vulkan::vkutil::beginSingleTimeCommands(VkDevice device, VkCommandPool commandPool)
+{
+	VkCommandBufferAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocInfo.commandPool = commandPool;
+	allocInfo.commandBufferCount = 1;
+
+	VkCommandBuffer commandBuffer;
+	vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer);
+
+	VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+	vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+	return commandBuffer;
+}
+
+void sss::vulkan::vkutil::endSingleTimeCommands(VkDevice device, VkQueue queue, VkCommandPool commandPool, VkCommandBuffer commandBuffer)
+{
+	vkEndCommandBuffer(commandBuffer);
+
+	VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &commandBuffer;
+
+	vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+	vkQueueWaitIdle(queue);
+
+	vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+}
+
 VkResult sss::vulkan::vkutil::findMemoryTypeIndex(VkPhysicalDeviceMemoryProperties memoryProperties, uint32_t memoryTypeBitsRequirement, VkMemoryPropertyFlags requiredProperties, VkMemoryPropertyFlags preferredProperties, uint32_t & memoryTypeIndex)
 {
 	memoryTypeIndex = ~uint32_t(0);
@@ -104,4 +136,49 @@ VkResult sss::vulkan::vkutil::create2dImage(VkPhysicalDevice physicalDevice, VkD
 	imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
 	return createImage(physicalDevice, device, imageCreateInfo, requiredFlags, preferredFlags, image, memory);
+}
+
+VkResult sss::vulkan::vkutil::createBuffer(VkPhysicalDevice physicalDevice, VkDevice device, VkBufferCreateInfo createInfo, VkMemoryPropertyFlags requiredFlags, VkMemoryPropertyFlags preferredFlags, VkBuffer & buffer, VkDeviceMemory & memory)
+{
+	VkResult result = vkCreateBuffer(device, &createInfo, nullptr, &buffer);
+
+	if (result != VK_SUCCESS)
+	{
+		return result;
+	}
+
+	VkMemoryRequirements memoryRequirements;
+	vkGetBufferMemoryRequirements(device, buffer, &memoryRequirements);
+
+	VkPhysicalDeviceMemoryProperties memoryProperties;
+	vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
+
+	uint32_t memoryTypeIndex;
+	if (findMemoryTypeIndex(memoryProperties, memoryRequirements.memoryTypeBits, requiredFlags, preferredFlags, memoryTypeIndex) != VK_SUCCESS)
+	{
+		return VK_ERROR_FEATURE_NOT_PRESENT;
+	}
+
+	VkMemoryAllocateInfo memoryAllocateInfo{ VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+	memoryAllocateInfo.allocationSize = memoryRequirements.size;
+	memoryAllocateInfo.memoryTypeIndex = memoryTypeIndex;
+
+	result = vkAllocateMemory(device, &memoryAllocateInfo, nullptr, &memory);
+
+	if (result != VK_SUCCESS)
+	{
+		vkDestroyBuffer(device, buffer, nullptr);
+		return result;
+	}
+
+	result = vkBindBufferMemory(device, buffer, memory, 0);
+
+	if (result != VK_SUCCESS)
+	{
+		vkDestroyBuffer(device, buffer, nullptr);
+		vkFreeMemory(device, memory, nullptr);
+		return result;
+	}
+
+	return VK_SUCCESS;
 }

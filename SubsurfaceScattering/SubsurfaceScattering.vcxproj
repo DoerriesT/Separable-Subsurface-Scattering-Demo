@@ -140,11 +140,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\input\ArcBallCamera.cpp" />
     <ClCompile Include="src\input\UserInput.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\utility\ContainerUtility.cpp" />
     <ClCompile Include="src\utility\Timer.cpp" />
     <ClCompile Include="src\utility\Utility.cpp" />
+    <ClCompile Include="src\vulkan\Mesh.cpp" />
     <ClCompile Include="src\vulkan\pipelines\LightingPipeline.cpp" />
     <ClCompile Include="src\vulkan\pipelines\ShaderModule.cpp" />
     <ClCompile Include="src\vulkan\pipelines\ShadowPipeline.cpp" />
@@ -156,12 +158,14 @@
     <ClCompile Include="src\window\Window.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\input\ArcBallCamera.h" />
     <ClInclude Include="src\input\IInputListener.h" />
     <ClInclude Include="src\input\InputTokens.h" />
     <ClInclude Include="src\input\UserInput.h" />
     <ClInclude Include="src\utility\ContainerUtility.h" />
     <ClInclude Include="src\utility\Timer.h" />
     <ClInclude Include="src\utility\Utility.h" />
+    <ClInclude Include="src\vulkan\Mesh.h" />
     <ClInclude Include="src\vulkan\pipelines\LightingPipeline.h" />
     <ClInclude Include="src\vulkan\pipelines\ShaderModule.h" />
     <ClInclude Include="src\vulkan\pipelines\ShadowPipeline.h" />

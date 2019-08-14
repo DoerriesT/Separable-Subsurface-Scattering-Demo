@@ -1,6 +1,11 @@
 #include "Renderer.h"
 #include "utility/Utility.h"
 #include "VKUtility.h"
+#include "vulkan/Mesh.h"
+#include "pipelines/ShadowPipeline.h"
+#include "pipelines/LightingPipeline.h"
+
+std::vector<std::unique_ptr<sss::vulkan::Mesh>> meshes;
 
 sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t height)
 	:m_width(width),
@@ -8,6 +13,8 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 	m_context(windowHandle),
 	m_swapChain(m_context, m_width, m_height)
 {
+	meshes = vulkan::Mesh::load(m_context.getPhysicalDevice(), m_context.getDevice(), m_context.getGraphicsQueue(), m_context.getGraphicsCommandPool(), "resources/meshes/head.obj");
+
 	// create images and views
 	{
 		for (size_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
@@ -288,6 +295,8 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			}
 		}
 	}
+
+	m_lightingPipeline = LightingPipeline::create(m_context.getDevice(), m_mainRenderPass, 0, 0, nullptr);
 }
 
 sss::vulkan::Renderer::~Renderer()
@@ -333,9 +342,13 @@ sss::vulkan::Renderer::~Renderer()
 	// free command buffers
 	vkFreeCommandBuffers(device, m_context.getGraphicsCommandPool(), FRAMES_IN_FLIGHT * 2, m_commandBuffers);
 
+	// destroy pipelines
+	vkDestroyPipeline(device, m_lightingPipeline.first, nullptr);
+	vkDestroyPipelineLayout(device, m_lightingPipeline.second, nullptr);
+
 }
 
-void sss::vulkan::Renderer::render()
+void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection)
 {
 	uint32_t resourceIndex = m_frameIndex % FRAMES_IN_FLIGHT;
 
@@ -381,7 +394,7 @@ void sss::vulkan::Renderer::render()
 		{
 			VkClearValue clearValues[2];
 			// first element of clearValues intentionally left empty, as the color attachment is not cleared and this element is thus ignored
-			clearValues[0].color.float32[0] = 1.0f;
+			clearValues[0].color.float32[0] = 0.0f;
 			clearValues[0].color.float32[1] = 0.0f;
 			clearValues[0].color.float32[2] = 0.0f;
 			clearValues[0].color.float32[3] = 1.0f;
@@ -400,7 +413,54 @@ void sss::vulkan::Renderer::render()
 
 			vkCmdBeginRenderPass(curCmdBuf, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-			// TODO: do actual lighting
+			// actual lighting
+			{
+				vkCmdBindPipeline(curCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightingPipeline.first);
+
+				VkViewport viewport;
+				viewport.x = 0.0f;
+				viewport.y = 0.0f;
+				viewport.width = static_cast<float>(m_width);
+				viewport.height = static_cast<float>(m_height);
+				viewport.minDepth = 0.0f;
+				viewport.maxDepth = 1.0f;
+
+				VkRect2D scissor;
+				scissor.offset = { 0, 0 };
+				scissor.extent = { m_width, m_height };
+
+				vkCmdSetViewport(curCmdBuf, 0, 1, &viewport);
+				vkCmdSetScissor(curCmdBuf, 0, 1, &scissor);
+
+				using namespace glm;
+				struct PushConsts
+				{
+					mat4 viewProjectionMatrix;
+					uint materialIndex;
+				};
+
+				PushConsts pushConsts;
+				pushConsts.viewProjectionMatrix = viewProjection;
+				pushConsts.materialIndex = 0;
+
+				for (const auto &mesh : meshes)
+				{
+					vkCmdBindIndexBuffer(curCmdBuf, mesh->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT16);
+
+					VkBuffer vertexBuffer = mesh->getVertexBuffer();
+					uint32_t vertexCount = mesh->getVertexCount();
+					VkBuffer vertexBuffers[] = { vertexBuffer, vertexBuffer, vertexBuffer };
+					VkDeviceSize vertexBufferOffsets[] = { 0, vertexCount * sizeof(float) * 3, vertexCount * sizeof(float) * 6 };
+
+					vkCmdBindVertexBuffers(curCmdBuf, 0, 3, vertexBuffers, vertexBufferOffsets);
+
+
+
+					vkCmdPushConstants(curCmdBuf, m_lightingPipeline.second, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pushConsts), &pushConsts);
+
+					vkCmdDrawIndexed(curCmdBuf, mesh->getIndexCount(), 1, 0, 0, 0);
+				}
+			}
 
 			vkCmdEndRenderPass(curCmdBuf);
 		}

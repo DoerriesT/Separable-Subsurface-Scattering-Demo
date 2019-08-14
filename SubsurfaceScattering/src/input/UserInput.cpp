@@ -7,6 +7,15 @@ sss::UserInput::UserInput()
 
 void sss::UserInput::input()
 {
+	if (!m_scrolled)
+	{
+		m_scrollOffset = glm::vec2();
+	}
+	else
+	{
+		m_scrolled = false;
+	}
+	
 	m_mousePosDelta = (m_mousePos - m_previousMousePos);
 	m_previousMousePos = m_mousePos;
 }
@@ -146,4 +155,6 @@ void sss::UserInput::onMouseScroll(double xOffset, double yOffset)
 
 	m_scrollOffset.x = static_cast<float>(xOffset);
 	m_scrollOffset.y = static_cast<float>(yOffset);
+
+	m_scrolled = true;
 }
