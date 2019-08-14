@@ -12,7 +12,7 @@ namespace sss
 		public:
 			explicit Renderer(void *windowHandle, uint32_t width, uint32_t height);
 			~Renderer();
-			void render(const glm::mat4 &viewProjection);
+			void render(const glm::mat4 &viewProjection, const glm::mat4 &shadowMatrix);
 
 		private:
 			enum 
@@ -45,7 +45,14 @@ namespace sss
 			VkDeviceMemory m_colorImageMemory[FRAMES_IN_FLIGHT];
 			std::pair<VkPipeline, VkPipelineLayout> m_shadowPipeline;
 			std::pair<VkPipeline, VkPipelineLayout> m_lightingPipeline;
-			
+			VkDescriptorPool m_descriptorPool;
+			VkDescriptorSetLayout m_lightingDescriptorSetLayout;
+			VkDescriptorSet m_lightingDescriptorSet[FRAMES_IN_FLIGHT];
+			VkSampler m_shadowSampler;
+			VkSampler m_linearSamplerClamp;
+			VkSampler m_linearSamplerRepeat;
+			VkSampler m_pointSamplerClamp;
+			VkSampler m_pointSamplerRepeat;
 		};
 	}
 }

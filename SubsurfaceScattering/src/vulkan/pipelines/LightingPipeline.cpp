@@ -9,7 +9,7 @@ namespace
 	struct PushConsts
 	{
 		mat4 viewProjectionMatrix;
-		uint materialIndex;
+		mat4 shadowMatrix;
 	};
 }
 

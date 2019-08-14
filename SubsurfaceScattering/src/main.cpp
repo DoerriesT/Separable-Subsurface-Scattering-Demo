@@ -10,9 +10,11 @@ using namespace sss;
 
 int main()
 {
-	Window window(800, 600, "Subsurface Scattering");
+	uint32_t width = 1600;
+	uint32_t height = 900;
+	Window window(width, height, "Subsurface Scattering");
 	UserInput userInput;
-	vulkan::Renderer renderer(window.getWindowHandle(), 800, 600);
+	vulkan::Renderer renderer(window.getWindowHandle(), width, height);
 
 	window.addInputListener(&userInput);
 
@@ -22,6 +24,8 @@ int main()
 	uint64_t previousTickCount = timer.getElapsedTicks();
 	uint64_t frameCount = 0;
 
+	float lightTheta = 0.0f;
+
 	while (!window.shouldClose())
 	{
 		timer.update();
@@ -30,22 +34,24 @@ int main()
 		window.pollEvents();
 		userInput.input();
 
-		const glm::mat4 viewMatrix = camera.update(userInput.getMousePosDelta() * (userInput.isMouseButtonPressed(InputMouse::BUTTON_RIGHT) ? 1.0f : 0.0f), userInput.getScrollOffset().y);
+		lightTheta += static_cast<float>(userInput.isKeyPressed(InputKey::LEFT)) * static_cast<float>(timer.getTimeDelta());
+		lightTheta -= static_cast<float>(userInput.isKeyPressed(InputKey::RIGHT)) * static_cast<float>(timer.getTimeDelta());
 
-		glm::mat4 viewProjection;
+		glm::vec3 lightPos(glm::cos(lightTheta), 0.2f, glm::sin(lightTheta));
+
+		glm::mat4 vulkanCorrection =
 		{
-			glm::mat4 vulkanCorrection =
-			{
-				{ 1.0f, 0.0f, 0.0f, 0.0f },
-				{ 0.0f, -1.0f, 0.0f, 0.0f },
-				{ 0.0f, 0.0f, 0.5f, 0.0f },
-				{ 0.0f, 0.0f, 0.5f, 1.0f }
-			};
-			const glm::mat4 projectionMatrix = glm::perspective(glm::radians(60.0f), 800 / float(600), 0.1f, 50.0f);
-			viewProjection = vulkanCorrection * projectionMatrix * viewMatrix;
-		}
+			{ 1.0f, 0.0f, 0.0f, 0.0f },
+			{ 0.0f, -1.0f, 0.0f, 0.0f },
+			{ 0.0f, 0.0f, 0.5f, 0.0f },
+			{ 0.0f, 0.0f, 0.5f, 1.0f }
+		};
 
-		renderer.render(viewProjection);
+		const glm::mat4 viewMatrix = camera.update(userInput.getMousePosDelta() * (userInput.isMouseButtonPressed(InputMouse::BUTTON_RIGHT) ? 1.0f : 0.0f), userInput.getScrollOffset().y);
+		const glm::mat4 viewProjection = vulkanCorrection * glm::perspective(glm::radians(60.0f), width / float(height), 0.01f, 50.0f) * viewMatrix;
+		const glm::mat4 shadowMatrix = vulkanCorrection * glm::perspective(glm::radians(40.0f), 1.0f, 0.1f, 3.0f) * glm::lookAt(lightPos, glm::vec3(0.0f, 0.3f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+
+		renderer.render(viewProjection, shadowMatrix);
 
 		double timeDiff = (timer.getElapsedTicks() - previousTickCount) / static_cast<double>(timer.getTickFrequency());
 		if (timeDiff > 1.0)

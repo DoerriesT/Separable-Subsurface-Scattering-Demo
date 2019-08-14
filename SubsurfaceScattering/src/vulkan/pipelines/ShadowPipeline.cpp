@@ -1,16 +1,28 @@
 #include "ShadowPipeline.h"
 #include "utility/Utility.h"
 #include "ShaderModule.h"
+#include <glm/mat4x4.hpp>
+
+namespace
+{
+	using namespace glm;
+	struct PushConsts
+	{
+		mat4 viewProjectionMatrix;
+	};
+}
 
 std::pair<VkPipeline, VkPipelineLayout> sss::vulkan::ShadowPipeline::create(VkDevice device, VkRenderPass renderPass, uint32_t subpassIndex, uint32_t setLayoutCount, VkDescriptorSetLayout * setLayouts)
 {
 	VkPipelineLayout pipelineLayout;
 
+	VkPushConstantRange pushConstantRange{ VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConsts) };
+
 	VkPipelineLayoutCreateInfo layoutCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
 	layoutCreateInfo.setLayoutCount = setLayoutCount;
 	layoutCreateInfo.pSetLayouts = setLayouts;
-	//layoutCreateInfo.pushConstantRangeCount = reflectionInfo.m_pushConstants.m_size > 0 ? 1 : 0;
-	//layoutCreateInfo.pPushConstantRanges = reflectionInfo.m_pushConstants.m_size > 0 ? &pushConstantRange : nullptr;
+	layoutCreateInfo.pushConstantRangeCount = 1;
+	layoutCreateInfo.pPushConstantRanges = &pushConstantRange;
 
 	if (vkCreatePipelineLayout(device, &layoutCreateInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
 	{
@@ -18,7 +30,6 @@ std::pair<VkPipeline, VkPipelineLayout> sss::vulkan::ShadowPipeline::create(VkDe
 	}
 
 	ShaderModule vertexShaderModule(device, "resources/shaders/shadow_vert.spv");
-	ShaderModule fragmentShaderModule(device, "resources/shaders/shadow_frag.spv");
 
 	VkPipelineShaderStageCreateInfo shaderStages[] =
 	{
@@ -55,7 +66,7 @@ std::pair<VkPipeline, VkPipelineLayout> sss::vulkan::ShadowPipeline::create(VkDe
 
 	VkPipelineRasterizationStateCreateInfo rasterizationState{ VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
 	rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
-	rasterizationState.cullMode = VK_CULL_MODE_BACK_BIT;
+	rasterizationState.cullMode = VK_CULL_MODE_NONE;
 	rasterizationState.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	rasterizationState.lineWidth = 1.0f;
 

@@ -23,7 +23,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			{
 				if (vkutil::create2dImage(m_context.getPhysicalDevice(), 
 					m_context.getDevice(), 
-					VK_FORMAT_D16_UNORM, 
+					VK_FORMAT_D32_SFLOAT,
 					SHADOW_RESOLUTION, 
 					SHADOW_RESOLUTION, 
 					VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 
@@ -38,7 +38,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 				VkImageViewCreateInfo viewCreateInfo{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
 				viewCreateInfo.image = m_shadowImage[i];
 				viewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-				viewCreateInfo.format = VK_FORMAT_D16_UNORM;
+				viewCreateInfo.format = VK_FORMAT_D32_SFLOAT;
 				viewCreateInfo.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
 
 				if (vkCreateImageView(m_context.getDevice(), &viewCreateInfo, nullptr, &m_shadowImageView[i]) != VK_SUCCESS)
@@ -108,7 +108,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 	// create shadow renderpass
 	{
 		VkAttachmentDescription attachmentDescription{};
-		attachmentDescription.format = VK_FORMAT_D16_UNORM;
+		attachmentDescription.format = VK_FORMAT_D32_SFLOAT;
 		attachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
 		attachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 		attachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -296,7 +296,178 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 		}
 	}
 
-	m_lightingPipeline = LightingPipeline::create(m_context.getDevice(), m_mainRenderPass, 0, 0, nullptr);
+	// create samplers
+	{
+		// shadow sampler
+		{
+			VkSamplerCreateInfo samplerCreateInfo = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+			samplerCreateInfo.magFilter = VK_FILTER_LINEAR;
+			samplerCreateInfo.minFilter = VK_FILTER_LINEAR;
+			samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+			samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+			samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+			samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+			samplerCreateInfo.mipLodBias = 0.0f;
+			samplerCreateInfo.anisotropyEnable = VK_FALSE;
+			samplerCreateInfo.maxAnisotropy = 1.0f;
+			samplerCreateInfo.compareEnable = VK_TRUE;
+			samplerCreateInfo.compareOp = VK_COMPARE_OP_GREATER;
+			samplerCreateInfo.minLod = 0.0f;
+			samplerCreateInfo.maxLod = 1;
+			samplerCreateInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+			samplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
+
+			if (vkCreateSampler(m_context.getDevice(), &samplerCreateInfo, nullptr, &m_shadowSampler) != VK_SUCCESS)
+			{
+				util::fatalExit("Failed to create sampler!", EXIT_FAILURE);
+			}
+		}
+
+		// linear sampler
+		{
+			VkSamplerCreateInfo samplerCreateInfo = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+			samplerCreateInfo.magFilter = VK_FILTER_LINEAR;
+			samplerCreateInfo.minFilter = VK_FILTER_LINEAR;
+			samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+			samplerCreateInfo.mipLodBias = 0.0f;
+			samplerCreateInfo.anisotropyEnable = VK_FALSE;
+			samplerCreateInfo.maxAnisotropy = 1.0f;
+			samplerCreateInfo.compareEnable = VK_FALSE;
+			samplerCreateInfo.compareOp = VK_COMPARE_OP_NEVER;
+			samplerCreateInfo.minLod = 0.0f;
+			samplerCreateInfo.maxLod = 1;
+			samplerCreateInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+			samplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
+
+			// clamp
+			samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+			samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+			samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+
+			if (vkCreateSampler(m_context.getDevice(), &samplerCreateInfo, nullptr, &m_linearSamplerClamp) != VK_SUCCESS)
+			{
+				util::fatalExit("Failed to create sampler!", EXIT_FAILURE);
+			}
+
+			// repeat
+			samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+			samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+			samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+
+			if (vkCreateSampler(m_context.getDevice(), &samplerCreateInfo, nullptr, &m_linearSamplerRepeat) != VK_SUCCESS)
+			{
+				util::fatalExit("Failed to create sampler!", EXIT_FAILURE);
+			}
+		}
+
+		// point sampler
+		{
+			VkSamplerCreateInfo samplerCreateInfo = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+			samplerCreateInfo.magFilter = VK_FILTER_NEAREST;
+			samplerCreateInfo.minFilter = VK_FILTER_NEAREST;
+			samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+			samplerCreateInfo.mipLodBias = 0.0f;
+			samplerCreateInfo.anisotropyEnable = VK_FALSE;
+			samplerCreateInfo.maxAnisotropy = 1.0f;
+			samplerCreateInfo.compareEnable = VK_FALSE;
+			samplerCreateInfo.compareOp = VK_COMPARE_OP_NEVER;
+			samplerCreateInfo.minLod = 0.0f;
+			samplerCreateInfo.maxLod = 1;
+			samplerCreateInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+			samplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
+
+			// clamp
+			samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+			samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+			samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+
+			if (vkCreateSampler(m_context.getDevice(), &samplerCreateInfo, nullptr, &m_pointSamplerClamp) != VK_SUCCESS)
+			{
+				util::fatalExit("Failed to create sampler!", EXIT_FAILURE);
+			}
+
+			// repeat
+			samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+			samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+			samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+
+			if (vkCreateSampler(m_context.getDevice(), &samplerCreateInfo, nullptr, &m_pointSamplerRepeat) != VK_SUCCESS)
+			{
+				util::fatalExit("Failed to create sampler!", EXIT_FAILURE);
+			}
+		}
+	}
+
+	// create descriptor sets
+	{
+		VkDescriptorPoolSize poolSizes[] = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, FRAMES_IN_FLIGHT };
+
+		VkDescriptorPoolCreateInfo poolCreateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+		poolCreateInfo.maxSets = FRAMES_IN_FLIGHT;
+		poolCreateInfo.poolSizeCount = 1;
+		poolCreateInfo.pPoolSizes = poolSizes;
+
+		if (vkCreateDescriptorPool(m_context.getDevice(), &poolCreateInfo, nullptr, &m_descriptorPool) != VK_SUCCESS)
+		{
+			util::fatalExit("Failed to create descriptor pool!", EXIT_FAILURE);
+		}
+
+		VkDescriptorSetLayoutBinding bindings[] =
+		{
+			{ 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, &m_shadowSampler },
+		};
+
+		VkDescriptorSetLayoutCreateInfo layoutCreateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+		layoutCreateInfo.bindingCount = 1;
+		layoutCreateInfo.pBindings = bindings;
+
+		if (vkCreateDescriptorSetLayout(m_context.getDevice(), &layoutCreateInfo, nullptr, &m_lightingDescriptorSetLayout) != VK_SUCCESS)
+		{
+			util::fatalExit("Failed to create descriptor set layout!", EXIT_FAILURE);
+		}
+
+		VkDescriptorSetLayout setLayouts[FRAMES_IN_FLIGHT];
+		for (size_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+		{
+			setLayouts[i] = m_lightingDescriptorSetLayout;
+		}
+
+		VkDescriptorSetAllocateInfo setAllocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+		setAllocInfo.descriptorPool = m_descriptorPool;
+		setAllocInfo.descriptorSetCount = FRAMES_IN_FLIGHT;
+		setAllocInfo.pSetLayouts = setLayouts;
+
+
+		if (vkAllocateDescriptorSets(m_context.getDevice(), &setAllocInfo, m_lightingDescriptorSet) != VK_SUCCESS)
+		{
+			util::fatalExit("Failed to allocate descriptor sets!", EXIT_FAILURE);
+		}
+
+		VkDescriptorImageInfo shadowImageInfos[FRAMES_IN_FLIGHT];
+		VkWriteDescriptorSet descriptorWrites[FRAMES_IN_FLIGHT];
+
+		for (size_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+		{
+			auto &imageInfo = shadowImageInfos[i];
+			imageInfo.sampler = nullptr;
+			imageInfo.imageView = m_shadowImageView[i];
+			imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+			auto &write = descriptorWrites[i];
+			write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+			write.dstSet = m_lightingDescriptorSet[i];
+			write.dstBinding = 0;
+			write.descriptorCount = 1;
+			write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			write.pImageInfo = &imageInfo;
+		}
+
+
+		vkUpdateDescriptorSets(m_context.getDevice(), FRAMES_IN_FLIGHT, descriptorWrites, 0, nullptr);
+	}
+
+	m_shadowPipeline = ShadowPipeline::create(m_context.getDevice(), m_shadowRenderPass, 0, 0, nullptr);
+	m_lightingPipeline = LightingPipeline::create(m_context.getDevice(), m_mainRenderPass, 0, 1, &m_lightingDescriptorSetLayout);
 }
 
 sss::vulkan::Renderer::~Renderer()
@@ -348,7 +519,7 @@ sss::vulkan::Renderer::~Renderer()
 
 }
 
-void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection)
+void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::mat4 &shadowMatrix)
 {
 	uint32_t resourceIndex = m_frameIndex % FRAMES_IN_FLIGHT;
 
@@ -385,7 +556,48 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection)
 
 			vkCmdBeginRenderPass(curCmdBuf, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-			// TODO: do actual shadow rendering
+			// actual shadow rendering
+			{
+				vkCmdBindPipeline(curCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_shadowPipeline.first);
+
+				VkViewport viewport;
+				viewport.x = 0.0f;
+				viewport.y = 0.0f;
+				viewport.width = static_cast<float>(SHADOW_RESOLUTION);
+				viewport.height = static_cast<float>(SHADOW_RESOLUTION);
+				viewport.minDepth = 0.0f;
+				viewport.maxDepth = 1.0f;
+
+				VkRect2D scissor;
+				scissor.offset = { 0, 0 };
+				scissor.extent = { SHADOW_RESOLUTION, SHADOW_RESOLUTION };
+
+				vkCmdSetViewport(curCmdBuf, 0, 1, &viewport);
+				vkCmdSetScissor(curCmdBuf, 0, 1, &scissor);
+
+				using namespace glm;
+				struct PushConsts
+				{
+					mat4 viewProjectionMatrix;
+				};
+
+				PushConsts pushConsts;
+				pushConsts.viewProjectionMatrix = shadowMatrix;
+
+				for (const auto &mesh : meshes)
+				{
+					vkCmdBindIndexBuffer(curCmdBuf, mesh->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT16);
+
+					VkBuffer vertexBuffer = mesh->getVertexBuffer();
+					VkDeviceSize vertexBufferOffset = 0;
+
+					vkCmdBindVertexBuffers(curCmdBuf, 0, 1, &vertexBuffer, &vertexBufferOffset);
+
+					vkCmdPushConstants(curCmdBuf, m_shadowPipeline.second, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pushConsts), &pushConsts);
+
+					vkCmdDrawIndexed(curCmdBuf, mesh->getIndexCount(), 1, 0, 0, 0);
+				}
+			}
 
 			vkCmdEndRenderPass(curCmdBuf);
 		}
@@ -417,6 +629,8 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection)
 			{
 				vkCmdBindPipeline(curCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightingPipeline.first);
 
+				vkCmdBindDescriptorSets(curCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightingPipeline.second, 0, 1, &m_lightingDescriptorSet[resourceIndex], 0, nullptr);
+
 				VkViewport viewport;
 				viewport.x = 0.0f;
 				viewport.y = 0.0f;
@@ -436,12 +650,12 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection)
 				struct PushConsts
 				{
 					mat4 viewProjectionMatrix;
-					uint materialIndex;
+					mat4 shadowMatrix;
 				};
 
 				PushConsts pushConsts;
 				pushConsts.viewProjectionMatrix = viewProjection;
-				pushConsts.materialIndex = 0;
+				pushConsts.shadowMatrix = shadowMatrix;
 
 				for (const auto &mesh : meshes)
 				{
@@ -453,8 +667,6 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection)
 					VkDeviceSize vertexBufferOffsets[] = { 0, vertexCount * sizeof(float) * 3, vertexCount * sizeof(float) * 6 };
 
 					vkCmdBindVertexBuffers(curCmdBuf, 0, 3, vertexBuffers, vertexBufferOffsets);
-
-
 
 					vkCmdPushConstants(curCmdBuf, m_lightingPipeline.second, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pushConsts), &pushConsts);
 

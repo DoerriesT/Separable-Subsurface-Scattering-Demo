@@ -3,7 +3,7 @@
 struct PushConsts
 {
 	mat4 viewProjectionMatrix;
-	uint materialIndex;
+	mat4 shadowMatrix;
 };
 
 layout(push_constant) uniform PUSH_CONSTS 
@@ -18,7 +18,6 @@ layout(location = 2) in vec2 inTexCoord;
 layout(location = 0) out vec2 vTexCoord;
 layout(location = 1) out vec3 vNormal;
 layout(location = 2) out vec3 vWorldPos;
-layout(location = 3) flat out uint vMaterialIndex;
 
 void main() 
 {
@@ -27,6 +26,5 @@ void main()
 	vTexCoord = inTexCoord;
 	vNormal = inNormal;
 	vWorldPos = inPosition;
-	vMaterialIndex = uPushConsts.materialIndex;
 }
 
