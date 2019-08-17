@@ -72,6 +72,9 @@
     <ClCompile Include="src\vulkan\Texture.cpp">
       <Filter>src\vulkan</Filter>
     </ClCompile>
+    <ClCompile Include="src\vulkan\pipelines\SkyboxPipeline.cpp">
+      <Filter>src\vulkan\pipelines</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\vulkan\volk.h">
@@ -127,6 +130,9 @@
     </ClInclude>
     <ClInclude Include="src\vulkan\Texture.h">
       <Filter>src\vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vulkan\pipelines\SkyboxPipeline.h">
+      <Filter>src\vulkan\pipelines</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

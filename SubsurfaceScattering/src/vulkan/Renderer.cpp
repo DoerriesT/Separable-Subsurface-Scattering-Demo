@@ -5,6 +5,7 @@
 #include "vulkan/Texture.h"
 #include "pipelines/ShadowPipeline.h"
 #include "pipelines/LightingPipeline.h"
+#include "pipelines/SkyboxPipeline.h"
 
 sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t height)
 	:m_width(width),
@@ -25,6 +26,11 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 	{
 		m_textures.push_back(Texture::load(m_context.getPhysicalDevice(), m_context.getDevice(), m_context.getGraphicsQueue(), m_context.getGraphicsCommandPool(), path));
 	}
+
+	m_skyboxTexture = Texture::load(m_context.getPhysicalDevice(), m_context.getDevice(), m_context.getGraphicsQueue(), m_context.getGraphicsCommandPool(), "resources/textures/skybox.dds", true);
+	m_radianceTexture = Texture::load(m_context.getPhysicalDevice(), m_context.getDevice(), m_context.getGraphicsQueue(), m_context.getGraphicsCommandPool(), "resources/textures/prefilterMap.dds", true);
+	m_irradianceTexture = Texture::load(m_context.getPhysicalDevice(), m_context.getDevice(), m_context.getGraphicsQueue(), m_context.getGraphicsCommandPool(), "resources/textures/irradianceMap.dds", true);
+	m_brdfLUT = Texture::load(m_context.getPhysicalDevice(), m_context.getDevice(), m_context.getGraphicsQueue(), m_context.getGraphicsCommandPool(), "resources/textures/brdfLut.dds");
 
 	const char *meshPaths[] =
 	{
@@ -216,7 +222,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			// color
 			attachmentDescriptions[0].format = VK_FORMAT_R16G16B16A16_SFLOAT;
 			attachmentDescriptions[0].samples = VK_SAMPLE_COUNT_1_BIT;
-			attachmentDescriptions[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			attachmentDescriptions[0].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 			attachmentDescriptions[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 			attachmentDescriptions[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 			attachmentDescriptions[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -237,18 +243,27 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 		VkAttachmentReference colorAttachmentRef{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
 		VkAttachmentReference depthAttachmentRef{ 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
 
+		VkSubpassDescription subpasses[2]{};
+
 		// lighting subpass
-		VkSubpassDescription lightingSubpassDescription{};
 		{
-			lightingSubpassDescription.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-			lightingSubpassDescription.colorAttachmentCount = 1;
-			lightingSubpassDescription.pColorAttachments = &colorAttachmentRef;
-			lightingSubpassDescription.pDepthStencilAttachment = &depthAttachmentRef;
+			subpasses[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+			subpasses[0].colorAttachmentCount = 1;
+			subpasses[0].pColorAttachments = &colorAttachmentRef;
+			subpasses[0].pDepthStencilAttachment = &depthAttachmentRef;
+		}
+
+		// skybox subpass
+		{
+			subpasses[1].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+			subpasses[1].colorAttachmentCount = 1;
+			subpasses[1].pColorAttachments = &colorAttachmentRef;
+			subpasses[1].pDepthStencilAttachment = &depthAttachmentRef;
 		}
 
 		// create renderpass
 		{
-			VkSubpassDependency dependencies[2] = {};
+			VkSubpassDependency dependencies[3]{};
 
 			// shadow map generation -> shadow map sampling
 			dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
@@ -258,20 +273,30 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			dependencies[0].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 			dependencies[0].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-			// lighting -> blit to backbuffer
+			// shadow map sampling and shading -> skybox
 			dependencies[1].srcSubpass = 0;
-			dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-			dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-			dependencies[1].dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-			dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-			dependencies[1].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			dependencies[1].dstSubpass = 1;
+			dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+			dependencies[1].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+			dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			dependencies[1].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+			// skybox -> blit to backbuffer
+			dependencies[2].srcSubpass = 1;
+			dependencies[2].dstSubpass = VK_SUBPASS_EXTERNAL;
+			dependencies[2].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+			dependencies[2].dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+			dependencies[2].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+			dependencies[2].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+			
 
 			VkRenderPassCreateInfo renderPassInfo{ VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
 			renderPassInfo.attachmentCount = static_cast<uint32_t>(sizeof(attachmentDescriptions) / sizeof(attachmentDescriptions[0]));
 			renderPassInfo.pAttachments = attachmentDescriptions;
-			renderPassInfo.subpassCount = 1;
-			renderPassInfo.pSubpasses = &lightingSubpassDescription;
-			renderPassInfo.dependencyCount = 2;
+			renderPassInfo.subpassCount = 2;
+			renderPassInfo.pSubpasses = subpasses;
+			renderPassInfo.dependencyCount = 3;
 			renderPassInfo.pDependencies = dependencies;
 
 			if (vkCreateRenderPass(m_context.getDevice(), &renderPassInfo, nullptr, &m_mainRenderPass) != VK_SUCCESS)
@@ -451,11 +476,11 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 		VkDescriptorPoolSize poolSizes[] =
 		{
 			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, FRAMES_IN_FLIGHT },
-			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, FRAMES_IN_FLIGHT * (textureCount + 1) }
+			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, FRAMES_IN_FLIGHT /*shadow maps*/ + (textureCount + 4 /*cubemaps*/) }
 		};
 
 		VkDescriptorPoolCreateInfo poolCreateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-		poolCreateInfo.maxSets = FRAMES_IN_FLIGHT;
+		poolCreateInfo.maxSets = FRAMES_IN_FLIGHT + 1;
 		poolCreateInfo.poolSizeCount = 2;
 		poolCreateInfo.pPoolSizes = poolSizes;
 
@@ -464,104 +489,199 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			util::fatalExit("Failed to create descriptor pool!", EXIT_FAILURE);
 		}
 
-		VkSampler immutableTexSamplers[textureCount];
-		for (size_t i = 0; i < textureCount; ++i)
+		// texture set
 		{
-			immutableTexSamplers[i] = m_linearSamplerClamp;
-		}
-
-		VkDescriptorSetLayoutBinding bindings[] =
-		{
-			{ 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
-			{ 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, &m_shadowSampler },
-			{ 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, textureCount, VK_SHADER_STAGE_FRAGMENT_BIT, immutableTexSamplers },
-		};
-
-		VkDescriptorSetLayoutCreateInfo layoutCreateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-		layoutCreateInfo.bindingCount = static_cast<uint32_t>(sizeof(bindings) / sizeof(bindings[0]));
-		layoutCreateInfo.pBindings = bindings;
-
-		if (vkCreateDescriptorSetLayout(m_context.getDevice(), &layoutCreateInfo, nullptr, &m_lightingDescriptorSetLayout) != VK_SUCCESS)
-		{
-			util::fatalExit("Failed to create descriptor set layout!", EXIT_FAILURE);
-		}
-
-		VkDescriptorSetLayout setLayouts[FRAMES_IN_FLIGHT];
-		for (size_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
-		{
-			setLayouts[i] = m_lightingDescriptorSetLayout;
-		}
-
-		VkDescriptorSetAllocateInfo setAllocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-		setAllocInfo.descriptorPool = m_descriptorPool;
-		setAllocInfo.descriptorSetCount = FRAMES_IN_FLIGHT;
-		setAllocInfo.pSetLayouts = setLayouts;
-
-
-		if (vkAllocateDescriptorSets(m_context.getDevice(), &setAllocInfo, m_lightingDescriptorSet) != VK_SUCCESS)
-		{
-			util::fatalExit("Failed to allocate descriptor sets!", EXIT_FAILURE);
-		}
-
-		VkDescriptorBufferInfo constantBufferInfos[FRAMES_IN_FLIGHT];
-		VkDescriptorImageInfo shadowImageInfos[FRAMES_IN_FLIGHT];
-		VkDescriptorImageInfo textureImageInfos[FRAMES_IN_FLIGHT * textureCount];
-		VkWriteDescriptorSet descriptorWrites[FRAMES_IN_FLIGHT * 3];
-
-		for (size_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
-		{
-			// constant buffer
-			auto &bufferInfo = constantBufferInfos[i];
-			bufferInfo.buffer = m_constantBuffer[i];
-			bufferInfo.offset = 0;
-			bufferInfo.range = sizeof(glm::vec4) * 3;
-
-			auto &constantBufferWrite = descriptorWrites[i * 3];
-			constantBufferWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-			constantBufferWrite.dstSet = m_lightingDescriptorSet[i];
-			constantBufferWrite.dstBinding = 0;
-			constantBufferWrite.descriptorCount = 1;
-			constantBufferWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-			constantBufferWrite.pBufferInfo = &bufferInfo;
-
-			// shadow map
-			auto &shadowImageInfo = shadowImageInfos[i];
-			shadowImageInfo.sampler = nullptr;
-			shadowImageInfo.imageView = m_shadowImageView[i];
-			shadowImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-			auto &shadowMapWrite = descriptorWrites[i * 3 + 1];
-			shadowMapWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-			shadowMapWrite.dstSet = m_lightingDescriptorSet[i];
-			shadowMapWrite.dstBinding = 1;
-			shadowMapWrite.descriptorCount = 1;
-			shadowMapWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-			shadowMapWrite.pImageInfo = &shadowImageInfo;
-
-			// textures
-			for (size_t j = 0; j < textureCount; ++j)
+			VkSampler immutableTexSamplers[textureCount];
+			for (size_t i = 0; i < textureCount; ++i)
 			{
-				auto &textureImageInfo = textureImageInfos[i * textureCount + j];
-				textureImageInfo.sampler = nullptr;
-				textureImageInfo.imageView = m_textures[j]->getView();
-				textureImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				immutableTexSamplers[i] = m_linearSamplerClamp;
 			}
 
-			auto &textureWrite = descriptorWrites[i * 3 + 2];
-			textureWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-			textureWrite.dstSet = m_lightingDescriptorSet[i];
-			textureWrite.dstBinding = 2;
-			textureWrite.descriptorCount = textureCount;
-			textureWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-			textureWrite.pImageInfo = &textureImageInfos[i * textureCount];
+			VkDescriptorSetLayoutBinding bindings[] =
+			{
+				{ 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, textureCount, VK_SHADER_STAGE_FRAGMENT_BIT, immutableTexSamplers },
+				{ 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, &m_linearSamplerClamp },
+				{ 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, &m_linearSamplerClamp },
+				{ 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, &m_linearSamplerClamp },
+				{ 4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, &m_linearSamplerClamp },
+			};
+
+			VkDescriptorSetLayoutCreateInfo layoutCreateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+			layoutCreateInfo.bindingCount = static_cast<uint32_t>(sizeof(bindings) / sizeof(bindings[0]));
+			layoutCreateInfo.pBindings = bindings;
+
+			if (vkCreateDescriptorSetLayout(m_context.getDevice(), &layoutCreateInfo, nullptr, &m_textureDescriptorSetLayout) != VK_SUCCESS)
+			{
+				util::fatalExit("Failed to create descriptor set layout!", EXIT_FAILURE);
+			}
+
+			VkDescriptorSetAllocateInfo setAllocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+			setAllocInfo.descriptorPool = m_descriptorPool;
+			setAllocInfo.descriptorSetCount = 1;
+			setAllocInfo.pSetLayouts = &m_textureDescriptorSetLayout;
+
+			if (vkAllocateDescriptorSets(m_context.getDevice(), &setAllocInfo, &m_textureDescriptorSet) != VK_SUCCESS)
+			{
+				util::fatalExit("Failed to allocate descriptor set!", EXIT_FAILURE);
+			}
+
+			VkDescriptorImageInfo textureImageInfos[textureCount + 4];
+			{
+				for (size_t i = 0; i < textureCount; ++i)
+				{
+					auto &textureImageInfo = textureImageInfos[i];
+					textureImageInfo.sampler = nullptr;
+					textureImageInfo.imageView = m_textures[i]->getView();
+					textureImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				}
+
+				auto &brdfLutImageInfo = textureImageInfos[textureCount];
+				brdfLutImageInfo.sampler = nullptr;
+				brdfLutImageInfo.imageView = m_brdfLUT->getView();
+				brdfLutImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+				auto &radianceTexImageInfo = textureImageInfos[textureCount + 1];
+				radianceTexImageInfo.sampler = nullptr;
+				radianceTexImageInfo.imageView = m_radianceTexture->getView();
+				radianceTexImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+				auto &irradianceTexImageInfo = textureImageInfos[textureCount + 2];
+				irradianceTexImageInfo.sampler = nullptr;
+				irradianceTexImageInfo.imageView = m_irradianceTexture->getView();
+				irradianceTexImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+				auto &skyboxTexImageInfo = textureImageInfos[textureCount + 3];
+				skyboxTexImageInfo.sampler = nullptr;
+				skyboxTexImageInfo.imageView = m_skyboxTexture->getView();
+				skyboxTexImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			}
+
+			VkWriteDescriptorSet descriptorWrites[5];
+			{
+				auto &textureWrite = descriptorWrites[0];
+				textureWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+				textureWrite.dstSet = m_textureDescriptorSet;
+				textureWrite.dstBinding = 0;
+				textureWrite.descriptorCount = textureCount;
+				textureWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				textureWrite.pImageInfo = textureImageInfos;
+
+				auto &brdfLutWrite = descriptorWrites[1];
+				brdfLutWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+				brdfLutWrite.dstSet = m_textureDescriptorSet;
+				brdfLutWrite.dstBinding = 1;
+				brdfLutWrite.descriptorCount = 1;
+				brdfLutWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				brdfLutWrite.pImageInfo = &textureImageInfos[textureCount];
+
+				auto &radianceTexWrite = descriptorWrites[2];
+				radianceTexWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+				radianceTexWrite.dstSet = m_textureDescriptorSet;
+				radianceTexWrite.dstBinding = 2;
+				radianceTexWrite.descriptorCount = 1;
+				radianceTexWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				radianceTexWrite.pImageInfo = &textureImageInfos[textureCount + 1];
+
+				auto &irradianceTexWrite = descriptorWrites[3];
+				irradianceTexWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+				irradianceTexWrite.dstSet = m_textureDescriptorSet;
+				irradianceTexWrite.dstBinding = 3;
+				irradianceTexWrite.descriptorCount = 1;
+				irradianceTexWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				irradianceTexWrite.pImageInfo = &textureImageInfos[textureCount + 2];
+
+				auto &skyboxTexWrite = descriptorWrites[4];
+				skyboxTexWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+				skyboxTexWrite.dstSet = m_textureDescriptorSet;
+				skyboxTexWrite.dstBinding = 4;
+				skyboxTexWrite.descriptorCount = 1;
+				skyboxTexWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				skyboxTexWrite.pImageInfo = &textureImageInfos[textureCount + 3];
+			}
+			
+			vkUpdateDescriptorSets(m_context.getDevice(), static_cast<uint32_t>(sizeof(descriptorWrites) / sizeof(descriptorWrites[0])), descriptorWrites, 0, nullptr);
 		}
 
+		// lighting set
+		{
+			VkDescriptorSetLayoutBinding bindings[] =
+			{
+				{ 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
+				{ 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, &m_shadowSampler },
+			};
 
-		vkUpdateDescriptorSets(m_context.getDevice(), static_cast<uint32_t>(sizeof(descriptorWrites) / sizeof(descriptorWrites[0])), descriptorWrites, 0, nullptr);
+			VkDescriptorSetLayoutCreateInfo layoutCreateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+			layoutCreateInfo.bindingCount = static_cast<uint32_t>(sizeof(bindings) / sizeof(bindings[0]));
+			layoutCreateInfo.pBindings = bindings;
+
+			if (vkCreateDescriptorSetLayout(m_context.getDevice(), &layoutCreateInfo, nullptr, &m_lightingDescriptorSetLayout) != VK_SUCCESS)
+			{
+				util::fatalExit("Failed to create descriptor set layout!", EXIT_FAILURE);
+			}
+
+			VkDescriptorSetLayout setLayouts[FRAMES_IN_FLIGHT];
+			for (size_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+			{
+				setLayouts[i] = m_lightingDescriptorSetLayout;
+			}
+
+			VkDescriptorSetAllocateInfo setAllocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+			setAllocInfo.descriptorPool = m_descriptorPool;
+			setAllocInfo.descriptorSetCount = FRAMES_IN_FLIGHT;
+			setAllocInfo.pSetLayouts = setLayouts;
+
+
+			if (vkAllocateDescriptorSets(m_context.getDevice(), &setAllocInfo, m_lightingDescriptorSet) != VK_SUCCESS)
+			{
+				util::fatalExit("Failed to allocate descriptor sets!", EXIT_FAILURE);
+			}
+
+			VkDescriptorBufferInfo constantBufferInfos[FRAMES_IN_FLIGHT];
+			VkDescriptorImageInfo shadowImageInfos[FRAMES_IN_FLIGHT];
+			VkWriteDescriptorSet descriptorWrites[FRAMES_IN_FLIGHT * 2];
+
+			for (size_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+			{
+				// constant buffer
+				auto &bufferInfo = constantBufferInfos[i];
+				bufferInfo.buffer = m_constantBuffer[i];
+				bufferInfo.offset = 0;
+				bufferInfo.range = sizeof(glm::vec4) * 3;
+
+				auto &constantBufferWrite = descriptorWrites[i * 2];
+				constantBufferWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+				constantBufferWrite.dstSet = m_lightingDescriptorSet[i];
+				constantBufferWrite.dstBinding = 0;
+				constantBufferWrite.descriptorCount = 1;
+				constantBufferWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+				constantBufferWrite.pBufferInfo = &bufferInfo;
+
+				// shadow map
+				auto &shadowImageInfo = shadowImageInfos[i];
+				shadowImageInfo.sampler = nullptr;
+				shadowImageInfo.imageView = m_shadowImageView[i];
+				shadowImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+				auto &shadowMapWrite = descriptorWrites[i * 2 + 1];
+				shadowMapWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+				shadowMapWrite.dstSet = m_lightingDescriptorSet[i];
+				shadowMapWrite.dstBinding = 1;
+				shadowMapWrite.descriptorCount = 1;
+				shadowMapWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				shadowMapWrite.pImageInfo = &shadowImageInfo;
+			}
+
+
+			vkUpdateDescriptorSets(m_context.getDevice(), static_cast<uint32_t>(sizeof(descriptorWrites) / sizeof(descriptorWrites[0])), descriptorWrites, 0, nullptr);
+		}
 	}
 
 	m_shadowPipeline = ShadowPipeline::create(m_context.getDevice(), m_shadowRenderPass, 0, 0, nullptr);
-	m_lightingPipeline = LightingPipeline::create(m_context.getDevice(), m_mainRenderPass, 0, 1, &m_lightingDescriptorSetLayout);
+
+	VkDescriptorSetLayout lightingDescriptorSetLayouts[] = { m_textureDescriptorSetLayout, m_lightingDescriptorSetLayout };
+	m_lightingPipeline = LightingPipeline::create(m_context.getDevice(), m_mainRenderPass, 0, 2, lightingDescriptorSetLayouts);
+
+	m_skyboxPipeline = SkyboxPipeline::create(m_context.getDevice(), m_mainRenderPass, 1, 1, &m_textureDescriptorSetLayout);
 }
 
 sss::vulkan::Renderer::~Renderer()
@@ -659,17 +779,11 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 			{
 				vkCmdBindPipeline(curCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_shadowPipeline.first);
 
-				VkViewport viewport;
-				viewport.x = 0.0f;
-				viewport.y = 0.0f;
-				viewport.width = static_cast<float>(SHADOW_RESOLUTION);
-				viewport.height = static_cast<float>(SHADOW_RESOLUTION);
-				viewport.minDepth = 0.0f;
-				viewport.maxDepth = 1.0f;
+				VkViewport viewport{ 0.0f, 0.0f, static_cast<float>(SHADOW_RESOLUTION), static_cast<float>(SHADOW_RESOLUTION), 0.0f, 1.0f };
+				VkRect2D scissor{ { 0, 0 }, { SHADOW_RESOLUTION, SHADOW_RESOLUTION } };
 
-				VkRect2D scissor;
-				scissor.offset = { 0, 0 };
-				scissor.extent = { SHADOW_RESOLUTION, SHADOW_RESOLUTION };
+				vkCmdSetViewport(curCmdBuf, 0, 1, &viewport);
+				vkCmdSetScissor(curCmdBuf, 0, 1, &scissor);
 
 				vkCmdSetViewport(curCmdBuf, 0, 1, &viewport);
 				vkCmdSetScissor(curCmdBuf, 0, 1, &scissor);
@@ -731,19 +845,11 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 			{
 				vkCmdBindPipeline(curCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightingPipeline.first);
 
-				vkCmdBindDescriptorSets(curCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightingPipeline.second, 0, 1, &m_lightingDescriptorSet[resourceIndex], 0, nullptr);
+				VkDescriptorSet sets[] = { m_textureDescriptorSet, m_lightingDescriptorSet[resourceIndex] };
+				vkCmdBindDescriptorSets(curCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightingPipeline.second, 0, 2, sets, 0, nullptr);
 
-				VkViewport viewport;
-				viewport.x = 0.0f;
-				viewport.y = 0.0f;
-				viewport.width = static_cast<float>(m_width);
-				viewport.height = static_cast<float>(m_height);
-				viewport.minDepth = 0.0f;
-				viewport.maxDepth = 1.0f;
-
-				VkRect2D scissor;
-				scissor.offset = { 0, 0 };
-				scissor.extent = { m_width, m_height };
+				VkViewport viewport{ 0.0f, 0.0f, static_cast<float>(m_width), static_cast<float>(m_height), 0.0f, 1.0f };
+				VkRect2D scissor{ { 0, 0 }, { m_width, m_height } };
 
 				vkCmdSetViewport(curCmdBuf, 0, 1, &viewport);
 				vkCmdSetScissor(curCmdBuf, 0, 1, &scissor);
@@ -777,6 +883,34 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 						vkCmdDrawIndexed(curCmdBuf, submesh->getIndexCount(), 1, 0, 0, 0);
 					}
 				}
+			}
+
+			// skybox
+			{
+				vkCmdNextSubpass(curCmdBuf, VK_SUBPASS_CONTENTS_INLINE);
+
+				vkCmdBindPipeline(curCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_skyboxPipeline.first);
+
+				vkCmdBindDescriptorSets(curCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_skyboxPipeline.second, 0, 1, &m_textureDescriptorSet, 0, nullptr);
+
+				VkViewport viewport{ 0.0f, 0.0f, static_cast<float>(m_width), static_cast<float>(m_height), 0.0f, 1.0f };
+				VkRect2D scissor{ { 0, 0 }, { m_width, m_height } };
+
+				vkCmdSetViewport(curCmdBuf, 0, 1, &viewport);
+				vkCmdSetScissor(curCmdBuf, 0, 1, &scissor);
+
+				using namespace glm;
+				struct PushConsts
+				{
+					mat4 invModelViewProjectionMatrix;
+				};
+
+				PushConsts pushConsts;
+				pushConsts.invModelViewProjectionMatrix = glm::inverse(viewProjection);
+
+				vkCmdPushConstants(curCmdBuf, m_skyboxPipeline.second, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pushConsts), &pushConsts);
+
+				vkCmdDraw(curCmdBuf, 3, 1, 0, 0);
 			}
 
 			vkCmdEndRenderPass(curCmdBuf);

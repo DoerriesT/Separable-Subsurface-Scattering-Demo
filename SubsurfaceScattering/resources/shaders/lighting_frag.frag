@@ -8,15 +8,19 @@ struct PushConsts
 	mat4 shadowMatrix;
 };
 
-layout(set = 0, binding = 0) uniform CONSTANTS
+layout(set = 0, binding = 0) uniform sampler2D uTextures[5];
+layout(set = 0, binding = 1) uniform sampler2D uBrdfLUT;
+layout(set = 0, binding = 2) uniform samplerCube uRadianceTexture;
+layout(set = 0, binding = 3) uniform samplerCube uIrradianceTexture;
+
+layout(set = 1, binding = 0) uniform CONSTANTS
 {
 	vec4 lightPositionRadius;
 	vec4 lightColorInvSqrAttRadius;
 	vec4 cameraPosition;
 } uConsts;
 
-layout(set = 0, binding = 1) uniform sampler2DShadow uShadowTexture;
-layout(set = 0, binding = 2) uniform sampler2D uTextures[5];
+layout(set = 1, binding = 1) uniform sampler2DShadow uShadowTexture;
 
 layout(push_constant) uniform PUSH_CONSTS 
 {
@@ -156,6 +160,11 @@ vec3 accurateLinearToSRGB(in vec3 linearCol)
 	return sRGB;
 }
 
+vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
+{
+    return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(1.0 - cosTheta, 5.0);
+}  
+
 void main() 
 {
 	vec3 N = normalize(vNormal);
@@ -171,11 +180,9 @@ void main()
 	const vec3 radiance = uConsts.lightColorInvSqrAttRadius.rgb * att;
 	
 	const vec3 V = normalize(uConsts.cameraPosition.xyz - vWorldPos);
-	//vec3 N = normalize(vNormal);
-	vec3 albedo = texture(uTextures[0], vTexCoord).rgb;
-	float roughness = 1.0 - texture(uTextures[2], vTexCoord).x * 0.638;
-	vec3 F0 = texture(uTextures[3], vTexCoord).rgb * 0.272;
-	F0 *= texture(uTextures[4], vTexCoord).x;
+	const vec3 albedo = texture(uTextures[0], vTexCoord).rgb;
+	const float roughness = 1.0 - texture(uTextures[2], vTexCoord).x * 0.638;
+	vec3 F0 = texture(uTextures[3], vTexCoord).rgb * 0.272 * texture(uTextures[4], vTexCoord).x;
 	
 	vec3 result = cookTorranceSpecularBrdf(radiance, L, V, N, F0, albedo, roughness);
 	
@@ -193,15 +200,30 @@ void main()
 		shadow += texture(uShadowTexture, vec3(shadowPos.xy + sampleOffset * shadowTexelSize * 5.5, shadowPos.z - 0.001)).x * (1.0 / 16.0);
 	}
 	
-	//result *= gl_FragCoord.x < 800 ? texture(uTextures[4], vTexCoord).x : 1.0;
-	
 	result *= 1.0 - shadow;
-	// ambient
-	result += 0.7 * albedo;
+	
+	// ambient lighting (we now use IBL as the ambient term)
+    const vec3 F = fresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
+    
+    const vec3 kS = F;
+    const vec3 kD = 1.0 - kS;
+    
+    const vec3 irradiance = texture(uIrradianceTexture, N).rgb;
+    const vec3 diffuse = irradiance * albedo;
+    
+    // sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
+    const float MAX_REFLECTION_LOD = 4.0;
+    const vec3 prefilteredColor = textureLod(uRadianceTexture, reflect(-V, N), roughness * MAX_REFLECTION_LOD).rgb;    
+    const vec2 brdf = textureLod(uBrdfLUT, vec2(max(dot(N, V), 0.0), roughness), 0.0).rg;
+    const vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
+    
+    const vec3 ambient = (kD * diffuse + specular);
+    
+	result += ambient;
 	
 	// exposure/tonemap/gamma correct
 	{
-		result = uncharted2Tonemap(0.1 * result);
+		result = uncharted2Tonemap(result * 0.5);
 		
 		vec3 whiteScale = 1.0/uncharted2Tonemap(vec3(11.2));
 		result *= whiteScale;

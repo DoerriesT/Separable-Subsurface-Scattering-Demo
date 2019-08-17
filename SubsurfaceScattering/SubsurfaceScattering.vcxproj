@@ -150,6 +150,7 @@
     <ClCompile Include="src\vulkan\pipelines\LightingPipeline.cpp" />
     <ClCompile Include="src\vulkan\pipelines\ShaderModule.cpp" />
     <ClCompile Include="src\vulkan\pipelines\ShadowPipeline.cpp" />
+    <ClCompile Include="src\vulkan\pipelines\SkyboxPipeline.cpp" />
     <ClCompile Include="src\vulkan\SwapChain.cpp" />
     <ClCompile Include="src\vulkan\Texture.cpp" />
     <ClCompile Include="src\vulkan\VKContext.cpp" />
@@ -170,6 +171,7 @@
     <ClInclude Include="src\vulkan\pipelines\LightingPipeline.h" />
     <ClInclude Include="src\vulkan\pipelines\ShaderModule.h" />
     <ClInclude Include="src\vulkan\pipelines\ShadowPipeline.h" />
+    <ClInclude Include="src\vulkan\pipelines\SkyboxPipeline.h" />
     <ClInclude Include="src\vulkan\SwapChain.h" />
     <ClInclude Include="src\vulkan\Renderer.h" />
     <ClInclude Include="src\vulkan\Texture.h" />
