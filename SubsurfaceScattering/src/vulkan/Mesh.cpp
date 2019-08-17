@@ -46,9 +46,9 @@ struct VertexHash
 	}
 };
 
-std::vector<std::unique_ptr<sss::vulkan::Mesh>> sss::vulkan::Mesh::load(VkPhysicalDevice physicalDevice, VkDevice device, VkQueue queue, VkCommandPool cmdPool, const char *path)
+std::vector<std::shared_ptr<sss::vulkan::Mesh>> sss::vulkan::Mesh::load(VkPhysicalDevice physicalDevice, VkDevice device, VkQueue queue, VkCommandPool cmdPool, const char *path)
 {
-	std::vector<std::unique_ptr<sss::vulkan::Mesh>> result;
+	std::vector<std::shared_ptr<sss::vulkan::Mesh>> result;
 
 	// load scene
 	tinyobj::attrib_t objAttrib;
@@ -144,6 +144,7 @@ std::vector<std::unique_ptr<sss::vulkan::Mesh>> sss::vulkan::Mesh::load(VkPhysic
 			{
 				vertex.texCoord.x = objAttrib.texcoords[vertexIndex.texcoord_index * 2 + 0];
 				vertex.texCoord.y = objAttrib.texcoords[vertexIndex.texcoord_index * 2 + 1];
+				vertex.texCoord.y = 1.0f - vertex.texCoord.y;
 			}
 			else
 			{

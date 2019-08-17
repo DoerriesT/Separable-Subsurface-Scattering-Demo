@@ -2,10 +2,9 @@
 #include "utility/Utility.h"
 #include "VKUtility.h"
 #include "vulkan/Mesh.h"
+#include "vulkan/Texture.h"
 #include "pipelines/ShadowPipeline.h"
 #include "pipelines/LightingPipeline.h"
-
-std::vector<std::unique_ptr<sss::vulkan::Mesh>> meshes;
 
 sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t height)
 	:m_width(width),
@@ -13,23 +12,72 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 	m_context(windowHandle),
 	m_swapChain(m_context, m_width, m_height)
 {
-	meshes = vulkan::Mesh::load(m_context.getPhysicalDevice(), m_context.getDevice(), m_context.getGraphicsQueue(), m_context.getGraphicsCommandPool(), "resources/meshes/head.obj");
+	const char *texturePaths[] =
+	{
+		"resources/textures/head_albedo.dds",
+		"resources/textures/head_normal.dds",
+		"resources/textures/head_gloss.dds",
+		"resources/textures/head_specular.dds",
+		"resources/textures/head_cavity.dds",
+	};
 
-	// create images and views
+	for (const auto &path : texturePaths)
+	{
+		m_textures.push_back(Texture::load(m_context.getPhysicalDevice(), m_context.getDevice(), m_context.getGraphicsQueue(), m_context.getGraphicsCommandPool(), path));
+	}
+
+	const char *meshPaths[] =
+	{
+		"resources/meshes/head.obj"
+	};
+
+	for (const auto &path : meshPaths)
+	{
+		m_meshes.push_back(Mesh::load(m_context.getPhysicalDevice(), m_context.getDevice(), m_context.getGraphicsQueue(), m_context.getGraphicsCommandPool(), path));
+	}
+
+	const size_t textureCount = sizeof(texturePaths) / sizeof(texturePaths[0]);
+	const size_t meshCount = sizeof(meshPaths) / sizeof(meshPaths[0]);
+
+	// create images and views and buffers
 	{
 		for (size_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
 		{
+			// constant buffer
+			{
+				VkBufferCreateInfo createInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+				createInfo.size = sizeof(glm::vec4) * 3;
+				createInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+				createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+				if (vkutil::createBuffer(m_context.getPhysicalDevice(),
+					m_context.getDevice(),
+					createInfo,
+					VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+					m_constantBuffer[i],
+					m_constantBufferMemory[i]) != VK_SUCCESS)
+				{
+					util::fatalExit("Failed to create buffer!", EXIT_FAILURE);
+				}
+
+				if (vkMapMemory(m_context.getDevice(), m_constantBufferMemory[i], 0, createInfo.size, 0, (void **)&m_constantBufferPtr[i]) != VK_SUCCESS)
+				{
+					util::fatalExit("Failed to map constant buffer memory!", EXIT_FAILURE);
+				}
+			}
+
 			// shadow
 			{
-				if (vkutil::create2dImage(m_context.getPhysicalDevice(), 
-					m_context.getDevice(), 
+				if (vkutil::create2dImage(m_context.getPhysicalDevice(),
+					m_context.getDevice(),
 					VK_FORMAT_D32_SFLOAT,
-					SHADOW_RESOLUTION, 
-					SHADOW_RESOLUTION, 
-					VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 
-					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 
-					0, 
-					m_shadowImage[i], 
+					SHADOW_RESOLUTION,
+					SHADOW_RESOLUTION,
+					VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+					0,
+					m_shadowImage[i],
 					m_shadowImageMemory[i]) != VK_SUCCESS)
 				{
 					util::fatalExit("Failed to create image!", EXIT_FAILURE);
@@ -39,14 +87,14 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 				viewCreateInfo.image = m_shadowImage[i];
 				viewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
 				viewCreateInfo.format = VK_FORMAT_D32_SFLOAT;
-				viewCreateInfo.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+				viewCreateInfo.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 };
 
 				if (vkCreateImageView(m_context.getDevice(), &viewCreateInfo, nullptr, &m_shadowImageView[i]) != VK_SUCCESS)
 				{
 					util::fatalExit("Failed to create image view!", EXIT_FAILURE);
 				}
 			}
-			
+
 			// color
 			{
 				if (vkutil::create2dImage(m_context.getPhysicalDevice(),
@@ -313,7 +361,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			samplerCreateInfo.compareEnable = VK_TRUE;
 			samplerCreateInfo.compareOp = VK_COMPARE_OP_GREATER;
 			samplerCreateInfo.minLod = 0.0f;
-			samplerCreateInfo.maxLod = 1;
+			samplerCreateInfo.maxLod = 14.0f;
 			samplerCreateInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
 			samplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
 
@@ -335,7 +383,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			samplerCreateInfo.compareEnable = VK_FALSE;
 			samplerCreateInfo.compareOp = VK_COMPARE_OP_NEVER;
 			samplerCreateInfo.minLod = 0.0f;
-			samplerCreateInfo.maxLod = 1;
+			samplerCreateInfo.maxLod = 14.0f;
 			samplerCreateInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
 			samplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
 
@@ -372,7 +420,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			samplerCreateInfo.compareEnable = VK_FALSE;
 			samplerCreateInfo.compareOp = VK_COMPARE_OP_NEVER;
 			samplerCreateInfo.minLod = 0.0f;
-			samplerCreateInfo.maxLod = 1;
+			samplerCreateInfo.maxLod = 14.0f;
 			samplerCreateInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
 			samplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
 
@@ -400,11 +448,15 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 
 	// create descriptor sets
 	{
-		VkDescriptorPoolSize poolSizes[] = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, FRAMES_IN_FLIGHT };
+		VkDescriptorPoolSize poolSizes[] =
+		{
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, FRAMES_IN_FLIGHT },
+			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, FRAMES_IN_FLIGHT * (textureCount + 1) }
+		};
 
 		VkDescriptorPoolCreateInfo poolCreateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
 		poolCreateInfo.maxSets = FRAMES_IN_FLIGHT;
-		poolCreateInfo.poolSizeCount = 1;
+		poolCreateInfo.poolSizeCount = 2;
 		poolCreateInfo.pPoolSizes = poolSizes;
 
 		if (vkCreateDescriptorPool(m_context.getDevice(), &poolCreateInfo, nullptr, &m_descriptorPool) != VK_SUCCESS)
@@ -412,13 +464,21 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			util::fatalExit("Failed to create descriptor pool!", EXIT_FAILURE);
 		}
 
+		VkSampler immutableTexSamplers[textureCount];
+		for (size_t i = 0; i < textureCount; ++i)
+		{
+			immutableTexSamplers[i] = m_linearSamplerClamp;
+		}
+
 		VkDescriptorSetLayoutBinding bindings[] =
 		{
-			{ 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, &m_shadowSampler },
+			{ 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
+			{ 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, &m_shadowSampler },
+			{ 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, textureCount, VK_SHADER_STAGE_FRAGMENT_BIT, immutableTexSamplers },
 		};
 
 		VkDescriptorSetLayoutCreateInfo layoutCreateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-		layoutCreateInfo.bindingCount = 1;
+		layoutCreateInfo.bindingCount = static_cast<uint32_t>(sizeof(bindings) / sizeof(bindings[0]));
 		layoutCreateInfo.pBindings = bindings;
 
 		if (vkCreateDescriptorSetLayout(m_context.getDevice(), &layoutCreateInfo, nullptr, &m_lightingDescriptorSetLayout) != VK_SUCCESS)
@@ -443,27 +503,61 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			util::fatalExit("Failed to allocate descriptor sets!", EXIT_FAILURE);
 		}
 
+		VkDescriptorBufferInfo constantBufferInfos[FRAMES_IN_FLIGHT];
 		VkDescriptorImageInfo shadowImageInfos[FRAMES_IN_FLIGHT];
-		VkWriteDescriptorSet descriptorWrites[FRAMES_IN_FLIGHT];
+		VkDescriptorImageInfo textureImageInfos[FRAMES_IN_FLIGHT * textureCount];
+		VkWriteDescriptorSet descriptorWrites[FRAMES_IN_FLIGHT * 3];
 
 		for (size_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
 		{
-			auto &imageInfo = shadowImageInfos[i];
-			imageInfo.sampler = nullptr;
-			imageInfo.imageView = m_shadowImageView[i];
-			imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			// constant buffer
+			auto &bufferInfo = constantBufferInfos[i];
+			bufferInfo.buffer = m_constantBuffer[i];
+			bufferInfo.offset = 0;
+			bufferInfo.range = sizeof(glm::vec4) * 3;
 
-			auto &write = descriptorWrites[i];
-			write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-			write.dstSet = m_lightingDescriptorSet[i];
-			write.dstBinding = 0;
-			write.descriptorCount = 1;
-			write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-			write.pImageInfo = &imageInfo;
+			auto &constantBufferWrite = descriptorWrites[i * 3];
+			constantBufferWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+			constantBufferWrite.dstSet = m_lightingDescriptorSet[i];
+			constantBufferWrite.dstBinding = 0;
+			constantBufferWrite.descriptorCount = 1;
+			constantBufferWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			constantBufferWrite.pBufferInfo = &bufferInfo;
+
+			// shadow map
+			auto &shadowImageInfo = shadowImageInfos[i];
+			shadowImageInfo.sampler = nullptr;
+			shadowImageInfo.imageView = m_shadowImageView[i];
+			shadowImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+			auto &shadowMapWrite = descriptorWrites[i * 3 + 1];
+			shadowMapWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+			shadowMapWrite.dstSet = m_lightingDescriptorSet[i];
+			shadowMapWrite.dstBinding = 1;
+			shadowMapWrite.descriptorCount = 1;
+			shadowMapWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			shadowMapWrite.pImageInfo = &shadowImageInfo;
+
+			// textures
+			for (size_t j = 0; j < textureCount; ++j)
+			{
+				auto &textureImageInfo = textureImageInfos[i * textureCount + j];
+				textureImageInfo.sampler = nullptr;
+				textureImageInfo.imageView = m_textures[j]->getView();
+				textureImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			}
+
+			auto &textureWrite = descriptorWrites[i * 3 + 2];
+			textureWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+			textureWrite.dstSet = m_lightingDescriptorSet[i];
+			textureWrite.dstBinding = 2;
+			textureWrite.descriptorCount = textureCount;
+			textureWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			textureWrite.pImageInfo = &textureImageInfos[i * textureCount];
 		}
 
 
-		vkUpdateDescriptorSets(m_context.getDevice(), FRAMES_IN_FLIGHT, descriptorWrites, 0, nullptr);
+		vkUpdateDescriptorSets(m_context.getDevice(), static_cast<uint32_t>(sizeof(descriptorWrites) / sizeof(descriptorWrites[0])), descriptorWrites, 0, nullptr);
 	}
 
 	m_shadowPipeline = ShadowPipeline::create(m_context.getDevice(), m_shadowRenderPass, 0, 0, nullptr);
@@ -519,13 +613,18 @@ sss::vulkan::Renderer::~Renderer()
 
 }
 
-void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::mat4 &shadowMatrix)
+void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::mat4 &shadowMatrix, const glm::vec4 &lightPositionRadius, const glm::vec4 &lightColorInvSqrAttRadius, const glm::vec4 &cameraPosition)
 {
 	uint32_t resourceIndex = m_frameIndex % FRAMES_IN_FLIGHT;
 
 	// wait until gpu finished work on all per frame resources
 	vkWaitForFences(m_context.getDevice(), 1, &m_frameFinishedFence[resourceIndex], VK_TRUE, std::numeric_limits<uint64_t>::max());
 	vkResetFences(m_context.getDevice(), 1, &m_frameFinishedFence[resourceIndex]);
+
+	// update constant buffer content
+	((glm::vec4 *)m_constantBufferPtr[resourceIndex])[0] = lightPositionRadius;
+	((glm::vec4 *)m_constantBufferPtr[resourceIndex])[1] = lightColorInvSqrAttRadius;
+	((glm::vec4 *)m_constantBufferPtr[resourceIndex])[2] = cameraPosition;
 
 	// command buffer for the first half of the frame...
 	vkResetCommandBuffer(m_commandBuffers[resourceIndex * 2], 0);
@@ -584,19 +683,22 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 				PushConsts pushConsts;
 				pushConsts.viewProjectionMatrix = shadowMatrix;
 
-				for (const auto &mesh : meshes)
+				for (const auto &mesh : m_meshes)
 				{
-					vkCmdBindIndexBuffer(curCmdBuf, mesh->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT16);
+					for (const auto &submesh : mesh)
+					{
+						vkCmdBindIndexBuffer(curCmdBuf, submesh->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT16);
 
-					VkBuffer vertexBuffer = mesh->getVertexBuffer();
-					VkDeviceSize vertexBufferOffset = 0;
+						VkBuffer vertexBuffer = submesh->getVertexBuffer();
+						VkDeviceSize vertexBufferOffset = 0;
 
-					vkCmdBindVertexBuffers(curCmdBuf, 0, 1, &vertexBuffer, &vertexBufferOffset);
+						vkCmdBindVertexBuffers(curCmdBuf, 0, 1, &vertexBuffer, &vertexBufferOffset);
 
-					vkCmdPushConstants(curCmdBuf, m_shadowPipeline.second, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pushConsts), &pushConsts);
+						vkCmdPushConstants(curCmdBuf, m_shadowPipeline.second, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pushConsts), &pushConsts);
 
-					vkCmdDrawIndexed(curCmdBuf, mesh->getIndexCount(), 1, 0, 0, 0);
-				}
+						vkCmdDrawIndexed(curCmdBuf, submesh->getIndexCount(), 1, 0, 0, 0);
+					}
+				}	
 			}
 
 			vkCmdEndRenderPass(curCmdBuf);
@@ -657,20 +759,23 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 				pushConsts.viewProjectionMatrix = viewProjection;
 				pushConsts.shadowMatrix = shadowMatrix;
 
-				for (const auto &mesh : meshes)
+				for (const auto &mesh : m_meshes)
 				{
-					vkCmdBindIndexBuffer(curCmdBuf, mesh->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT16);
+					for (const auto &submesh : mesh)
+					{
+						vkCmdBindIndexBuffer(curCmdBuf, submesh->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT16);
 
-					VkBuffer vertexBuffer = mesh->getVertexBuffer();
-					uint32_t vertexCount = mesh->getVertexCount();
-					VkBuffer vertexBuffers[] = { vertexBuffer, vertexBuffer, vertexBuffer };
-					VkDeviceSize vertexBufferOffsets[] = { 0, vertexCount * sizeof(float) * 3, vertexCount * sizeof(float) * 6 };
+						VkBuffer vertexBuffer = submesh->getVertexBuffer();
+						uint32_t vertexCount = submesh->getVertexCount();
+						VkBuffer vertexBuffers[] = { vertexBuffer, vertexBuffer, vertexBuffer };
+						VkDeviceSize vertexBufferOffsets[] = { 0, vertexCount * sizeof(float) * 3, vertexCount * sizeof(float) * 6 };
 
-					vkCmdBindVertexBuffers(curCmdBuf, 0, 3, vertexBuffers, vertexBufferOffsets);
+						vkCmdBindVertexBuffers(curCmdBuf, 0, 3, vertexBuffers, vertexBufferOffsets);
 
-					vkCmdPushConstants(curCmdBuf, m_lightingPipeline.second, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pushConsts), &pushConsts);
+						vkCmdPushConstants(curCmdBuf, m_lightingPipeline.second, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pushConsts), &pushConsts);
 
-					vkCmdDrawIndexed(curCmdBuf, mesh->getIndexCount(), 1, 0, 0, 0);
+						vkCmdDrawIndexed(curCmdBuf, submesh->getIndexCount(), 1, 0, 0, 0);
+					}
 				}
 			}
 
@@ -727,7 +832,7 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 
 			vkCmdPipelineBarrier(curCmdBuf, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &imageBarrier);
 		}
-		
+
 		// blit color image to backbuffer
 		{
 			VkImageBlit region{};
@@ -738,7 +843,7 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 
 			vkCmdBlitImage(curCmdBuf, m_colorImage[resourceIndex], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_swapChain.getImage(swapChainImageIndex), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_NEAREST);
 		}
-		
+
 		// transition backbuffer image layout to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
 		{
 			VkImageMemoryBarrier imageBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };

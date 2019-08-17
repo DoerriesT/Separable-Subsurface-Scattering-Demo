@@ -151,6 +151,7 @@
     <ClCompile Include="src\vulkan\pipelines\ShaderModule.cpp" />
     <ClCompile Include="src\vulkan\pipelines\ShadowPipeline.cpp" />
     <ClCompile Include="src\vulkan\SwapChain.cpp" />
+    <ClCompile Include="src\vulkan\Texture.cpp" />
     <ClCompile Include="src\vulkan\VKContext.cpp" />
     <ClCompile Include="src\vulkan\Renderer.cpp" />
     <ClCompile Include="src\vulkan\VKUtility.cpp" />
@@ -171,6 +172,7 @@
     <ClInclude Include="src\vulkan\pipelines\ShadowPipeline.h" />
     <ClInclude Include="src\vulkan\SwapChain.h" />
     <ClInclude Include="src\vulkan\Renderer.h" />
+    <ClInclude Include="src\vulkan\Texture.h" />
     <ClInclude Include="src\vulkan\VKContext.h" />
     <ClInclude Include="src\vulkan\VKUtility.h" />
     <ClInclude Include="src\vulkan\volk.h" />

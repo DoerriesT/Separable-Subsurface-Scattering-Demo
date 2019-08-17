@@ -2,17 +2,21 @@
 #include "VKContext.h"
 #include "SwapChain.h"
 #include <glm/mat4x4.hpp>
+#include <memory>
 
 namespace sss
 {
 	namespace vulkan
 	{
+		class Texture;
+		class Mesh;
+
 		class Renderer
 		{
 		public:
 			explicit Renderer(void *windowHandle, uint32_t width, uint32_t height);
 			~Renderer();
-			void render(const glm::mat4 &viewProjection, const glm::mat4 &shadowMatrix);
+			void render(const glm::mat4 &viewProjection, const glm::mat4 &shadowMatrix, const glm::vec4 &lightPositionRadius, const glm::vec4 &lightColorInvSqrAttRadius, const glm::vec4 &cameraPosition);
 
 		private:
 			enum 
@@ -43,6 +47,9 @@ namespace sss
 			VkDeviceMemory m_shadowImageMemory[FRAMES_IN_FLIGHT];
 			VkDeviceMemory m_depthImageMemory[FRAMES_IN_FLIGHT];
 			VkDeviceMemory m_colorImageMemory[FRAMES_IN_FLIGHT];
+			VkBuffer m_constantBuffer[FRAMES_IN_FLIGHT];
+			VkDeviceMemory m_constantBufferMemory[FRAMES_IN_FLIGHT];
+			uint8_t *m_constantBufferPtr[FRAMES_IN_FLIGHT];
 			std::pair<VkPipeline, VkPipelineLayout> m_shadowPipeline;
 			std::pair<VkPipeline, VkPipelineLayout> m_lightingPipeline;
 			VkDescriptorPool m_descriptorPool;
@@ -53,6 +60,8 @@ namespace sss
 			VkSampler m_linearSamplerRepeat;
 			VkSampler m_pointSamplerClamp;
 			VkSampler m_pointSamplerRepeat;
+			std::vector<std::shared_ptr<Texture>> m_textures;
+			std::vector<std::vector<std::shared_ptr<Mesh>>> m_meshes;
 		};
 	}
 }

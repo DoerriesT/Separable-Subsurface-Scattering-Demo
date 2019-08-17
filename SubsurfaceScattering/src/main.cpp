@@ -18,7 +18,7 @@ int main()
 
 	window.addInputListener(&userInput);
 
-	ArcBallCamera camera(glm::vec3(0.0f, 0.2f, 0.0f), 1.0f);
+	ArcBallCamera camera(glm::vec3(0.0f, 0.25f, 0.0f), 1.0f);
 
 	util::Timer timer;
 	uint64_t previousTickCount = timer.getElapsedTicks();
@@ -33,6 +33,7 @@ int main()
 
 		window.pollEvents();
 		userInput.input();
+		camera.update(userInput.getMousePosDelta() * (userInput.isMouseButtonPressed(InputMouse::BUTTON_RIGHT) ? 1.0f : 0.0f), userInput.getScrollOffset().y);
 
 		lightTheta += static_cast<float>(userInput.isKeyPressed(InputKey::LEFT)) * static_cast<float>(timer.getTimeDelta());
 		lightTheta -= static_cast<float>(userInput.isKeyPressed(InputKey::RIGHT)) * static_cast<float>(timer.getTimeDelta());
@@ -47,11 +48,15 @@ int main()
 			{ 0.0f, 0.0f, 0.5f, 1.0f }
 		};
 
-		const glm::mat4 viewMatrix = camera.update(userInput.getMousePosDelta() * (userInput.isMouseButtonPressed(InputMouse::BUTTON_RIGHT) ? 1.0f : 0.0f), userInput.getScrollOffset().y);
-		const glm::mat4 viewProjection = vulkanCorrection * glm::perspective(glm::radians(60.0f), width / float(height), 0.01f, 50.0f) * viewMatrix;
+		const glm::mat4 viewMatrix = camera.getViewMatrix();
+		const glm::mat4 viewProjection = vulkanCorrection * glm::perspective(glm::radians(40.0f), width / float(height), 0.01f, 50.0f) * viewMatrix;
 		const glm::mat4 shadowMatrix = vulkanCorrection * glm::perspective(glm::radians(40.0f), 1.0f, 0.1f, 3.0f) * glm::lookAt(lightPos, glm::vec3(0.0f, 0.3f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+		const float lightRadius = 5.0f;
+		const float lightLuminousPower = 700.0f;
+		const glm::vec3 lightColor = glm::vec3(255.0f, 206.0f, 166.0f) / 255.0f;
+		const glm::vec3 lightIntensity = lightColor * lightLuminousPower * (1.0f / (4.0f * glm::pi<float>()));
 
-		renderer.render(viewProjection, shadowMatrix);
+		renderer.render(viewProjection, shadowMatrix, glm::vec4(lightPos, lightRadius), glm::vec4(lightIntensity, 1.0f / (lightRadius * lightRadius)), glm::vec4(camera.getPosition(), 0.0f));
 
 		double timeDiff = (timer.getElapsedTicks() - previousTickCount) / static_cast<double>(timer.getTickFrequency());
 		if (timeDiff > 1.0)

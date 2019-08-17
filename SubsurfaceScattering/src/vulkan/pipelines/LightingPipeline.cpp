@@ -17,7 +17,7 @@ std::pair<VkPipeline, VkPipelineLayout> sss::vulkan::LightingPipeline::create(Vk
 {
 	VkPipelineLayout pipelineLayout;
 
-	VkPushConstantRange pushConstantRange{ VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConsts) };
+	VkPushConstantRange pushConstantRange{ VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConsts) };
 
 	VkPipelineLayoutCreateInfo layoutCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
 	layoutCreateInfo.setLayoutCount = setLayoutCount;

@@ -11,7 +11,7 @@ namespace sss
 		class Mesh
 		{
 		public:
-			static std::vector<std::unique_ptr<Mesh>> load(VkPhysicalDevice physicalDevice, VkDevice device, VkQueue queue, VkCommandPool cmdPool, const char *path);
+			static std::vector<std::shared_ptr<Mesh>> load(VkPhysicalDevice physicalDevice, VkDevice device, VkQueue queue, VkCommandPool cmdPool, const char *path);
 			Mesh() = default;
 			Mesh(const Mesh &) = delete;
 			Mesh(const Mesh &&) = delete;

@@ -1,0 +1,11 @@
+head
+gloss 0.638
+specular intensity 0.097
+specular fresnel 0.272
+horizon occlusion 0.809
+
+jacket
+gloss 0.376
+specular intensity 0.162
+fresnel 0.612
+horizon occlusion 1.0
