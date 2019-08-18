@@ -6,6 +6,7 @@
 #include "pipelines/ShadowPipeline.h"
 #include "pipelines/LightingPipeline.h"
 #include "pipelines/SkyboxPipeline.h"
+#include "pipelines/TonemapPipeline.h"
 
 sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t height)
 	:m_width(width),
@@ -242,8 +243,9 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 
 		VkAttachmentReference colorAttachmentRef{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
 		VkAttachmentReference depthAttachmentRef{ 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+		VkAttachmentReference colorInputOutputAttachmentRef{ 0, VK_IMAGE_LAYOUT_GENERAL };
 
-		VkSubpassDescription subpasses[2]{};
+		VkSubpassDescription subpasses[3]{};
 
 		// lighting subpass
 		{
@@ -261,9 +263,18 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			subpasses[1].pDepthStencilAttachment = &depthAttachmentRef;
 		}
 
+		// tonemap subpass
+		{
+			subpasses[2].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+			subpasses[2].inputAttachmentCount = 1;
+			subpasses[2].pInputAttachments = &colorInputOutputAttachmentRef;
+			subpasses[2].colorAttachmentCount = 1;
+			subpasses[2].pColorAttachments = &colorInputOutputAttachmentRef;
+		}
+
 		// create renderpass
 		{
-			VkSubpassDependency dependencies[3]{};
+			VkSubpassDependency dependencies[4]{};
 
 			// shadow map generation -> shadow map sampling
 			dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
@@ -281,22 +292,29 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 			dependencies[1].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
-			// skybox -> blit to backbuffer
+			// skybox -> tonemap
 			dependencies[2].srcSubpass = 1;
-			dependencies[2].dstSubpass = VK_SUBPASS_EXTERNAL;
+			dependencies[2].dstSubpass = 2;
 			dependencies[2].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-			dependencies[2].dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+			dependencies[2].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 			dependencies[2].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-			dependencies[2].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			dependencies[2].dstAccessMask = VK_ACCESS_INPUT_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+			dependencies[2].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
-			
+			// tonemap -> blit to backbuffer
+			dependencies[3].srcSubpass = 2;
+			dependencies[3].dstSubpass = VK_SUBPASS_EXTERNAL;
+			dependencies[3].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+			dependencies[3].dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+			dependencies[3].srcAccessMask = VK_ACCESS_INPUT_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+			dependencies[3].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 
 			VkRenderPassCreateInfo renderPassInfo{ VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
 			renderPassInfo.attachmentCount = static_cast<uint32_t>(sizeof(attachmentDescriptions) / sizeof(attachmentDescriptions[0]));
 			renderPassInfo.pAttachments = attachmentDescriptions;
-			renderPassInfo.subpassCount = 2;
+			renderPassInfo.subpassCount = 3;
 			renderPassInfo.pSubpasses = subpasses;
-			renderPassInfo.dependencyCount = 3;
+			renderPassInfo.dependencyCount = 4;
 			renderPassInfo.pDependencies = dependencies;
 
 			if (vkCreateRenderPass(m_context.getDevice(), &renderPassInfo, nullptr, &m_mainRenderPass) != VK_SUCCESS)
@@ -476,12 +494,13 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 		VkDescriptorPoolSize poolSizes[] =
 		{
 			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, FRAMES_IN_FLIGHT },
-			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, FRAMES_IN_FLIGHT /*shadow maps*/ + (textureCount + 4 /*cubemaps*/) }
+			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, FRAMES_IN_FLIGHT /*shadow maps*/ + (textureCount + 4 /*cubemaps*/) },
+			{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, FRAMES_IN_FLIGHT }
 		};
 
 		VkDescriptorPoolCreateInfo poolCreateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-		poolCreateInfo.maxSets = FRAMES_IN_FLIGHT + 1;
-		poolCreateInfo.poolSizeCount = 2;
+		poolCreateInfo.maxSets = FRAMES_IN_FLIGHT * 2 + 1;
+		poolCreateInfo.poolSizeCount = 3;
 		poolCreateInfo.pPoolSizes = poolSizes;
 
 		if (vkCreateDescriptorPool(m_context.getDevice(), &poolCreateInfo, nullptr, &m_descriptorPool) != VK_SUCCESS)
@@ -671,6 +690,60 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 				shadowMapWrite.pImageInfo = &shadowImageInfo;
 			}
 
+			vkUpdateDescriptorSets(m_context.getDevice(), static_cast<uint32_t>(sizeof(descriptorWrites) / sizeof(descriptorWrites[0])), descriptorWrites, 0, nullptr);
+		}
+
+		// tonemap set
+		{
+			VkDescriptorSetLayoutBinding bindings[] =
+			{
+				{ 0, VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
+			};
+
+			VkDescriptorSetLayoutCreateInfo layoutCreateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+			layoutCreateInfo.bindingCount = static_cast<uint32_t>(sizeof(bindings) / sizeof(bindings[0]));
+			layoutCreateInfo.pBindings = bindings;
+
+			if (vkCreateDescriptorSetLayout(m_context.getDevice(), &layoutCreateInfo, nullptr, &m_tonemapDescriptorSetLayout) != VK_SUCCESS)
+			{
+				util::fatalExit("Failed to create descriptor set layout!", EXIT_FAILURE);
+			}
+
+			VkDescriptorSetLayout setLayouts[FRAMES_IN_FLIGHT];
+			for (size_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+			{
+				setLayouts[i] = m_tonemapDescriptorSetLayout;
+			}
+
+			VkDescriptorSetAllocateInfo setAllocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+			setAllocInfo.descriptorPool = m_descriptorPool;
+			setAllocInfo.descriptorSetCount = FRAMES_IN_FLIGHT;
+			setAllocInfo.pSetLayouts = setLayouts;
+
+
+			if (vkAllocateDescriptorSets(m_context.getDevice(), &setAllocInfo, m_tonemapDescriptorSet) != VK_SUCCESS)
+			{
+				util::fatalExit("Failed to allocate descriptor sets!", EXIT_FAILURE);
+			}
+
+			VkDescriptorImageInfo imageInfos[FRAMES_IN_FLIGHT];
+			VkWriteDescriptorSet descriptorWrites[FRAMES_IN_FLIGHT];
+
+			for (size_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+			{
+				auto &imageInfo = imageInfos[i];
+				imageInfo.sampler = nullptr;
+				imageInfo.imageView = m_colorImageView[i];
+				imageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+				auto &write = descriptorWrites[i];
+				write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+				write.dstSet = m_tonemapDescriptorSet[i];
+				write.dstBinding = 0;
+				write.descriptorCount = 1;
+				write.descriptorType = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+				write.pImageInfo = &imageInfo;
+			}
 
 			vkUpdateDescriptorSets(m_context.getDevice(), static_cast<uint32_t>(sizeof(descriptorWrites) / sizeof(descriptorWrites[0])), descriptorWrites, 0, nullptr);
 		}
@@ -682,6 +755,8 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 	m_lightingPipeline = LightingPipeline::create(m_context.getDevice(), m_mainRenderPass, 0, 2, lightingDescriptorSetLayouts);
 
 	m_skyboxPipeline = SkyboxPipeline::create(m_context.getDevice(), m_mainRenderPass, 1, 1, &m_textureDescriptorSetLayout);
+
+	m_tonemapPipeline = TonemapPipeline::create(m_context.getDevice(), m_mainRenderPass, 2, 1, &m_tonemapDescriptorSetLayout);
 }
 
 sss::vulkan::Renderer::~Renderer()
@@ -909,6 +984,33 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 				pushConsts.invModelViewProjectionMatrix = glm::inverse(viewProjection);
 
 				vkCmdPushConstants(curCmdBuf, m_skyboxPipeline.second, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pushConsts), &pushConsts);
+
+				vkCmdDraw(curCmdBuf, 3, 1, 0, 0);
+			}
+
+			// tonemap
+			{
+				vkCmdNextSubpass(curCmdBuf, VK_SUBPASS_CONTENTS_INLINE);
+
+				vkCmdBindPipeline(curCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_tonemapPipeline.first);
+
+				vkCmdBindDescriptorSets(curCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_tonemapPipeline.second, 0, 1, &m_tonemapDescriptorSet[resourceIndex], 0, nullptr);
+
+				VkViewport viewport{ 0.0f, 0.0f, static_cast<float>(m_width), static_cast<float>(m_height), 0.0f, 1.0f };
+				VkRect2D scissor{ { 0, 0 }, { m_width, m_height } };
+
+				vkCmdSetViewport(curCmdBuf, 0, 1, &viewport);
+				vkCmdSetScissor(curCmdBuf, 0, 1, &scissor);
+
+				struct PushConsts
+				{
+					float exposure;
+				};
+
+				PushConsts pushConsts;
+				pushConsts.exposure = 1.0f;
+
+				vkCmdPushConstants(curCmdBuf, m_skyboxPipeline.second, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pushConsts), &pushConsts);
 
 				vkCmdDraw(curCmdBuf, 3, 1, 0, 0);
 			}

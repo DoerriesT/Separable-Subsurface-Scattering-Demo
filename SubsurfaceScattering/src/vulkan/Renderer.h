@@ -53,11 +53,14 @@ namespace sss
 			std::pair<VkPipeline, VkPipelineLayout> m_shadowPipeline;
 			std::pair<VkPipeline, VkPipelineLayout> m_lightingPipeline;
 			std::pair<VkPipeline, VkPipelineLayout> m_skyboxPipeline;
+			std::pair<VkPipeline, VkPipelineLayout> m_tonemapPipeline;
 			VkDescriptorPool m_descriptorPool;
 			VkDescriptorSetLayout m_textureDescriptorSetLayout;
 			VkDescriptorSetLayout m_lightingDescriptorSetLayout;
+			VkDescriptorSetLayout m_tonemapDescriptorSetLayout;
 			VkDescriptorSet m_textureDescriptorSet;
 			VkDescriptorSet m_lightingDescriptorSet[FRAMES_IN_FLIGHT];
+			VkDescriptorSet m_tonemapDescriptorSet[FRAMES_IN_FLIGHT];
 			VkSampler m_shadowSampler;
 			VkSampler m_linearSamplerClamp;
 			VkSampler m_linearSamplerRepeat;

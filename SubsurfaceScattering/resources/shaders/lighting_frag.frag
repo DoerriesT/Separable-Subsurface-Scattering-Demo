@@ -141,23 +141,12 @@ vec3 cookTorranceSpecularBrdf(vec3 radiance, vec3 L, vec3 V, vec3 N, vec3 F0, ve
 	return (kD * albedo * (1.0 / PI) + specular) * radiance * NdotL;
 }
 
-vec3 uncharted2Tonemap(vec3 x)
+vec3 accurateSRGBToLinear(in vec3 sRGBCol)
 {
-	float A = 0.15;
-	float B = 0.50;
-	float C = 0.10;
-	float D = 0.20;
-	float E = 0.02;
-	float F = 0.30;
-	return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;
-}
-
-vec3 accurateLinearToSRGB(in vec3 linearCol)
-{
-	vec3 sRGBLo = linearCol * 12.92;
-	vec3 sRGBHi = (pow(abs(linearCol), vec3(1.0/2.4)) * 1.055) - 0.055;
-	vec3 sRGB = mix(sRGBLo, sRGBHi, vec3(greaterThan(linearCol, vec3(0.0031308))));
-	return sRGB;
+	vec3 linearRGBLo = sRGBCol * (1.0 / 12.92);
+	vec3 linearRGBHi = pow((sRGBCol + vec3(0.055)) * vec3(1.0 / 1.055), vec3(2.4));
+	vec3 linearRGB = mix(linearRGBLo, linearRGBHi, vec3(greaterThan(sRGBCol, vec3(0.04045))));
+	return linearRGB;
 }
 
 vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
@@ -180,7 +169,7 @@ void main()
 	const vec3 radiance = uConsts.lightColorInvSqrAttRadius.rgb * att;
 	
 	const vec3 V = normalize(uConsts.cameraPosition.xyz - vWorldPos);
-	const vec3 albedo = texture(uTextures[0], vTexCoord).rgb;
+	const vec3 albedo = accurateSRGBToLinear(texture(uTextures[0], vTexCoord).rgb);
 	const float roughness = 1.0 - texture(uTextures[2], vTexCoord).x * 0.638;
 	vec3 F0 = texture(uTextures[3], vTexCoord).rgb * 0.272 * texture(uTextures[4], vTexCoord).x;
 	
@@ -220,15 +209,6 @@ void main()
     const vec3 ambient = (kD * diffuse + specular);
     
 	result += ambient;
-	
-	// exposure/tonemap/gamma correct
-	{
-		result = uncharted2Tonemap(result * 0.5);
-		
-		vec3 whiteScale = 1.0/uncharted2Tonemap(vec3(11.2));
-		result *= whiteScale;
-		result = accurateLinearToSRGB(result);
-	}
 	
 	oColor = vec4(result, 1.0);
 }
