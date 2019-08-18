@@ -12,6 +12,7 @@ layout(push_constant) uniform PUSH_CONSTS
 	PushConsts uPushConsts;
 };
 
+layout(location = 0) in vec2 vTexCoord;
 
 layout(location = 0) out vec4 oColor;
 

@@ -109,7 +109,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 					VK_FORMAT_R16G16B16A16_SFLOAT,
 					m_width,
 					m_height,
-					VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+					VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
 					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 					0,
 					m_colorImage[i],
@@ -304,7 +304,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			// tonemap -> blit to backbuffer
 			dependencies[3].srcSubpass = 2;
 			dependencies[3].dstSubpass = VK_SUBPASS_EXTERNAL;
-			dependencies[3].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+			dependencies[3].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 			dependencies[3].dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
 			dependencies[3].srcAccessMask = VK_ACCESS_INPUT_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 			dependencies[3].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
@@ -617,7 +617,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 				skyboxTexWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 				skyboxTexWrite.pImageInfo = &textureImageInfos[textureCount + 3];
 			}
-			
+
 			vkUpdateDescriptorSets(m_context.getDevice(), static_cast<uint32_t>(sizeof(descriptorWrites) / sizeof(descriptorWrites[0])), descriptorWrites, 0, nullptr);
 		}
 
@@ -887,7 +887,7 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 
 						vkCmdDrawIndexed(curCmdBuf, submesh->getIndexCount(), 1, 0, 0, 0);
 					}
-				}	
+				}
 			}
 
 			vkCmdEndRenderPass(curCmdBuf);
@@ -1010,7 +1010,7 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 				PushConsts pushConsts;
 				pushConsts.exposure = 1.0f;
 
-				vkCmdPushConstants(curCmdBuf, m_skyboxPipeline.second, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pushConsts), &pushConsts);
+				vkCmdPushConstants(curCmdBuf, m_tonemapPipeline.second, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pushConsts), &pushConsts);
 
 				vkCmdDraw(curCmdBuf, 3, 1, 0, 0);
 			}
