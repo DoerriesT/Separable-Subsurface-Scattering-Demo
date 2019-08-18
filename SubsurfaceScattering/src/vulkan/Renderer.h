@@ -41,12 +41,15 @@ namespace sss
 			VkImage m_shadowImage[FRAMES_IN_FLIGHT];
 			VkImage m_depthImage[FRAMES_IN_FLIGHT];
 			VkImage m_colorImage[FRAMES_IN_FLIGHT];
+			VkImage m_tonemappedImage[FRAMES_IN_FLIGHT];
 			VkImageView m_shadowImageView[FRAMES_IN_FLIGHT];
 			VkImageView m_depthImageView[FRAMES_IN_FLIGHT];
 			VkImageView m_colorImageView[FRAMES_IN_FLIGHT];
+			VkImageView m_tonemappedImageView[FRAMES_IN_FLIGHT];
 			VkDeviceMemory m_shadowImageMemory[FRAMES_IN_FLIGHT];
 			VkDeviceMemory m_depthImageMemory[FRAMES_IN_FLIGHT];
 			VkDeviceMemory m_colorImageMemory[FRAMES_IN_FLIGHT];
+			VkDeviceMemory m_tonemappedImageMemory[FRAMES_IN_FLIGHT];
 			VkBuffer m_constantBuffer[FRAMES_IN_FLIGHT];
 			VkDeviceMemory m_constantBufferMemory[FRAMES_IN_FLIGHT];
 			uint8_t *m_constantBufferPtr[FRAMES_IN_FLIGHT];

@@ -157,6 +157,34 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 					util::fatalExit("Failed to create image view!", EXIT_FAILURE);
 				}
 			}
+
+			// tonemap result
+			{
+				if (vkutil::create2dImage(m_context.getPhysicalDevice(),
+					m_context.getDevice(),
+					VK_FORMAT_R8G8B8A8_UNORM,
+					m_width,
+					m_height,
+					VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+					0,
+					m_tonemappedImage[i],
+					m_tonemappedImageMemory[i]) != VK_SUCCESS)
+				{
+					util::fatalExit("Failed to create image!", EXIT_FAILURE);
+				}
+
+				VkImageViewCreateInfo viewCreateInfo{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+				viewCreateInfo.image = m_tonemappedImage[i];
+				viewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+				viewCreateInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+				viewCreateInfo.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+				if (vkCreateImageView(m_context.getDevice(), &viewCreateInfo, nullptr, &m_tonemappedImageView[i]) != VK_SUCCESS)
+				{
+					util::fatalExit("Failed to create image view!", EXIT_FAILURE);
+				}
+			}
 		}
 	}
 
@@ -218,17 +246,17 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 
 	// create main renderpass
 	{
-		VkAttachmentDescription attachmentDescriptions[2] = {};
+		VkAttachmentDescription attachmentDescriptions[3] = {};
 		{
 			// color
 			attachmentDescriptions[0].format = VK_FORMAT_R16G16B16A16_SFLOAT;
 			attachmentDescriptions[0].samples = VK_SAMPLE_COUNT_1_BIT;
 			attachmentDescriptions[0].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-			attachmentDescriptions[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			attachmentDescriptions[0].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 			attachmentDescriptions[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 			attachmentDescriptions[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 			attachmentDescriptions[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			attachmentDescriptions[0].finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			attachmentDescriptions[0].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
 			// depth
 			attachmentDescriptions[1].format = VK_FORMAT_D32_SFLOAT_S8_UINT;
@@ -239,11 +267,22 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			attachmentDescriptions[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 			attachmentDescriptions[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 			attachmentDescriptions[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+			// tonemap result
+			attachmentDescriptions[2].format = VK_FORMAT_R8G8B8A8_UNORM;
+			attachmentDescriptions[2].samples = VK_SAMPLE_COUNT_1_BIT;
+			attachmentDescriptions[2].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+			attachmentDescriptions[2].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			attachmentDescriptions[2].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+			attachmentDescriptions[2].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+			attachmentDescriptions[2].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			attachmentDescriptions[2].finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 		}
 
 		VkAttachmentReference colorAttachmentRef{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
 		VkAttachmentReference depthAttachmentRef{ 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
-		VkAttachmentReference colorInputOutputAttachmentRef{ 0, VK_IMAGE_LAYOUT_GENERAL };
+		VkAttachmentReference tonemapResultAttachmentRef{ 2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+		VkAttachmentReference colorInputAttachmentRef{ 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 
 		VkSubpassDescription subpasses[3]{};
 
@@ -267,9 +306,9 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 		{
 			subpasses[2].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 			subpasses[2].inputAttachmentCount = 1;
-			subpasses[2].pInputAttachments = &colorInputOutputAttachmentRef;
+			subpasses[2].pInputAttachments = &colorInputAttachmentRef;
 			subpasses[2].colorAttachmentCount = 1;
-			subpasses[2].pColorAttachments = &colorInputOutputAttachmentRef;
+			subpasses[2].pColorAttachments = &tonemapResultAttachmentRef;
 		}
 
 		// create renderpass
@@ -304,9 +343,9 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			// tonemap -> blit to backbuffer
 			dependencies[3].srcSubpass = 2;
 			dependencies[3].dstSubpass = VK_SUBPASS_EXTERNAL;
-			dependencies[3].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+			dependencies[3].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 			dependencies[3].dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-			dependencies[3].srcAccessMask = VK_ACCESS_INPUT_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+			dependencies[3].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 			dependencies[3].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 
 			VkRenderPassCreateInfo renderPassInfo{ VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
@@ -328,13 +367,14 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 		{
 			for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
 			{
-				VkImageView framebufferAttachments[2];
+				VkImageView framebufferAttachments[3];
 				framebufferAttachments[0] = m_colorImageView[i];
 				framebufferAttachments[1] = m_depthImageView[i];
+				framebufferAttachments[2] = m_tonemappedImageView[i];
 
 				VkFramebufferCreateInfo framebufferCreateInfo{ VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
 				framebufferCreateInfo.renderPass = m_mainRenderPass;
-				framebufferCreateInfo.attachmentCount = 2;
+				framebufferCreateInfo.attachmentCount = 3;
 				framebufferCreateInfo.pAttachments = framebufferAttachments;
 				framebufferCreateInfo.width = m_width;
 				framebufferCreateInfo.height = m_height;
@@ -734,7 +774,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 				auto &imageInfo = imageInfos[i];
 				imageInfo.sampler = nullptr;
 				imageInfo.imageView = m_colorImageView[i];
-				imageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+				imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
 				auto &write = descriptorWrites[i];
 				write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
@@ -895,7 +935,7 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 
 		// main renderpass
 		{
-			VkClearValue clearValues[2];
+			VkClearValue clearValues[3];
 			// first element of clearValues intentionally left empty, as the color attachment is not cleared and this element is thus ignored
 			clearValues[0].color.float32[0] = 0.0f;
 			clearValues[0].color.float32[1] = 0.0f;
@@ -906,12 +946,18 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 			clearValues[1].depthStencil.depth = 1.0f;
 			clearValues[1].depthStencil.stencil = 0;
 
+			// tonemap result
+			clearValues[2].color.uint32[0] = 0;
+			clearValues[2].color.uint32[1] = 0;
+			clearValues[2].color.uint32[2] = 0;
+			clearValues[2].color.uint32[3] = 1;
+
 			VkRenderPassBeginInfo renderPassInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
 			renderPassInfo.renderPass = m_mainRenderPass;
 			renderPassInfo.framebuffer = m_mainFramebuffers[resourceIndex];
 			renderPassInfo.renderArea.offset = { 0, 0 };
 			renderPassInfo.renderArea.extent = { m_width, m_height };
-			renderPassInfo.clearValueCount = 2;
+			renderPassInfo.clearValueCount = 3;
 			renderPassInfo.pClearValues = clearValues;
 
 			vkCmdBeginRenderPass(curCmdBuf, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
@@ -1077,7 +1123,7 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 			region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
 			region.dstOffsets[1] = { static_cast<int32_t>(m_width), static_cast<int32_t>(m_height), 1 };
 
-			vkCmdBlitImage(curCmdBuf, m_colorImage[resourceIndex], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_swapChain.getImage(swapChainImageIndex), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_NEAREST);
+			vkCmdBlitImage(curCmdBuf, m_tonemappedImage[resourceIndex], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_swapChain.getImage(swapChainImageIndex), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_NEAREST);
 		}
 
 		// transition backbuffer image layout to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
