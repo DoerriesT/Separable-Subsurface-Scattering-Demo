@@ -1,12 +1,15 @@
 #include "Renderer.h"
+#include <glm/trigonometric.hpp>	
 #include "utility/Utility.h"
 #include "VKUtility.h"
 #include "vulkan/Mesh.h"
 #include "vulkan/Texture.h"
 #include "pipelines/ShadowPipeline.h"
-#include "pipelines/LightingPipeline.h"
+#include "pipelines/SSSLightingPipeline.h"
 #include "pipelines/SkyboxPipeline.h"
-#include "pipelines/TonemapPipeline.h"
+#include "pipelines/SSSBlurPipeline.h"
+#include "pipelines/PostprocessingPipeline.h"
+
 
 sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t height)
 	:m_width(width),
@@ -102,6 +105,43 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 				}
 			}
 
+			// depth
+			{
+				if (vkutil::create2dImage(m_context.getPhysicalDevice(),
+					m_context.getDevice(),
+					VK_FORMAT_D32_SFLOAT_S8_UINT,
+					m_width,
+					m_height,
+					VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+					0,
+					m_depthStencilImage[i],
+					m_depthStencilImageMemory[i]) != VK_SUCCESS)
+				{
+					util::fatalExit("Failed to create image!", EXIT_FAILURE);
+				}
+
+				VkImageViewCreateInfo viewCreateInfo{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+				viewCreateInfo.image = m_depthStencilImage[i];
+				viewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+				viewCreateInfo.format = VK_FORMAT_D32_SFLOAT_S8_UINT;
+				viewCreateInfo.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 0, 1, 0, 1 };
+
+				// depth AND stencil aspect
+				if (vkCreateImageView(m_context.getDevice(), &viewCreateInfo, nullptr, &m_depthStencilImageView[i]) != VK_SUCCESS)
+				{
+					util::fatalExit("Failed to create image view!", EXIT_FAILURE);
+				}
+
+				viewCreateInfo.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 };
+
+				// depth aspect only
+				if (vkCreateImageView(m_context.getDevice(), &viewCreateInfo, nullptr, &m_depthImageView[i]) != VK_SUCCESS)
+				{
+					util::fatalExit("Failed to create image view!", EXIT_FAILURE);
+				}
+			}
+
 			// color
 			{
 				if (vkutil::create2dImage(m_context.getPhysicalDevice(),
@@ -109,7 +149,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 					VK_FORMAT_R16G16B16A16_SFLOAT,
 					m_width,
 					m_height,
-					VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+					VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 					0,
 					m_colorImage[i],
@@ -130,32 +170,46 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 				}
 			}
 
-			// depth
+			// diffuse
 			{
-				if (vkutil::create2dImage(m_context.getPhysicalDevice(),
-					m_context.getDevice(),
-					VK_FORMAT_D32_SFLOAT_S8_UINT,
-					m_width,
-					m_height,
-					VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-					0,
-					m_depthImage[i],
-					m_depthImageMemory[i]) != VK_SUCCESS)
+				VkImage images[2];
+				VkDeviceMemory memory[2];
+				VkImageView views[2];
+
+				for (size_t j = 0; j < 2; ++j)
 				{
-					util::fatalExit("Failed to create image!", EXIT_FAILURE);
+					if (vkutil::create2dImage(m_context.getPhysicalDevice(),
+						m_context.getDevice(),
+						VK_FORMAT_R16G16B16A16_SFLOAT,
+						m_width,
+						m_height,
+						VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+						VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+						0,
+						images[j],
+						memory[j]) != VK_SUCCESS)
+					{
+						util::fatalExit("Failed to create image!", EXIT_FAILURE);
+					}
+
+					VkImageViewCreateInfo viewCreateInfo{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+					viewCreateInfo.image = images[j];
+					viewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+					viewCreateInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+					viewCreateInfo.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+					if (vkCreateImageView(m_context.getDevice(), &viewCreateInfo, nullptr, &views[j]) != VK_SUCCESS)
+					{
+						util::fatalExit("Failed to create image view!", EXIT_FAILURE);
+					}
 				}
 
-				VkImageViewCreateInfo viewCreateInfo{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-				viewCreateInfo.image = m_depthImage[i];
-				viewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-				viewCreateInfo.format = VK_FORMAT_D32_SFLOAT_S8_UINT;
-				viewCreateInfo.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 0, 1, 0, 1 };
-
-				if (vkCreateImageView(m_context.getDevice(), &viewCreateInfo, nullptr, &m_depthImageView[i]) != VK_SUCCESS)
-				{
-					util::fatalExit("Failed to create image view!", EXIT_FAILURE);
-				}
+				m_diffuse0Image[i] = images[0];
+				m_diffuse1Image[i] = images[1];
+				m_diffuse0ImageMemory[i] = memory[0];
+				m_diffuse1ImageMemory[i] = memory[1];
+				m_diffuse0ImageView[i] = views[0];
+				m_diffuse1ImageView[i] = views[1];
 			}
 
 			// tonemap result
@@ -165,7 +219,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 					VK_FORMAT_R8G8B8A8_UNORM,
 					m_width,
 					m_height,
-					VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+					VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
 					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 					0,
 					m_tonemappedImage[i],
@@ -248,49 +302,50 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 	{
 		VkAttachmentDescription attachmentDescriptions[3] = {};
 		{
-			// color
-			attachmentDescriptions[0].format = VK_FORMAT_R16G16B16A16_SFLOAT;
+			// depth
+			attachmentDescriptions[0].format = VK_FORMAT_D32_SFLOAT_S8_UINT;
 			attachmentDescriptions[0].samples = VK_SAMPLE_COUNT_1_BIT;
-			attachmentDescriptions[0].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-			attachmentDescriptions[0].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+			attachmentDescriptions[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			attachmentDescriptions[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 			attachmentDescriptions[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 			attachmentDescriptions[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 			attachmentDescriptions[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 			attachmentDescriptions[0].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-			// depth
-			attachmentDescriptions[1].format = VK_FORMAT_D32_SFLOAT_S8_UINT;
+			// color
+			attachmentDescriptions[1].format = VK_FORMAT_R16G16B16A16_SFLOAT;
 			attachmentDescriptions[1].samples = VK_SAMPLE_COUNT_1_BIT;
-			attachmentDescriptions[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-			attachmentDescriptions[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-			attachmentDescriptions[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			attachmentDescriptions[1].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+			attachmentDescriptions[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			attachmentDescriptions[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 			attachmentDescriptions[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 			attachmentDescriptions[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			attachmentDescriptions[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+			attachmentDescriptions[1].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-			// tonemap result
-			attachmentDescriptions[2].format = VK_FORMAT_R8G8B8A8_UNORM;
+			// diffuse0
+			attachmentDescriptions[2].format = VK_FORMAT_R16G16B16A16_SFLOAT;
 			attachmentDescriptions[2].samples = VK_SAMPLE_COUNT_1_BIT;
-			attachmentDescriptions[2].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+			attachmentDescriptions[2].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 			attachmentDescriptions[2].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 			attachmentDescriptions[2].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 			attachmentDescriptions[2].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 			attachmentDescriptions[2].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			attachmentDescriptions[2].finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			attachmentDescriptions[2].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		}
 
-		VkAttachmentReference colorAttachmentRef{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
-		VkAttachmentReference depthAttachmentRef{ 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
-		VkAttachmentReference tonemapResultAttachmentRef{ 2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
-		VkAttachmentReference colorInputAttachmentRef{ 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+		VkAttachmentReference depthAttachmentRef{ 0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+		VkAttachmentReference colorAttachmentRef{ 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+		VkAttachmentReference diffuse0AttachmentRef{ 2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
 
-		VkSubpassDescription subpasses[3]{};
+		VkAttachmentReference lightingPassAttachmentRefs[] = { colorAttachmentRef, diffuse0AttachmentRef };
+
+		VkSubpassDescription subpasses[2]{};
 
 		// lighting subpass
 		{
 			subpasses[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-			subpasses[0].colorAttachmentCount = 1;
-			subpasses[0].pColorAttachments = &colorAttachmentRef;
+			subpasses[0].colorAttachmentCount = 2;
+			subpasses[0].pColorAttachments = lightingPassAttachmentRefs;
 			subpasses[0].pDepthStencilAttachment = &depthAttachmentRef;
 		}
 
@@ -302,18 +357,9 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			subpasses[1].pDepthStencilAttachment = &depthAttachmentRef;
 		}
 
-		// tonemap subpass
-		{
-			subpasses[2].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-			subpasses[2].inputAttachmentCount = 1;
-			subpasses[2].pInputAttachments = &colorInputAttachmentRef;
-			subpasses[2].colorAttachmentCount = 1;
-			subpasses[2].pColorAttachments = &tonemapResultAttachmentRef;
-		}
-
 		// create renderpass
 		{
-			VkSubpassDependency dependencies[4]{};
+			VkSubpassDependency dependencies[3]{};
 
 			// shadow map generation -> shadow map sampling
 			dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
@@ -329,31 +375,22 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
 			dependencies[1].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
 			dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-			dependencies[1].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			dependencies[1].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
 
-			// skybox -> tonemap
-			dependencies[2].srcSubpass = 1;
-			dependencies[2].dstSubpass = 2;
+			// shading -> sss blur
+			dependencies[2].srcSubpass = 0;
+			dependencies[2].dstSubpass = VK_SUBPASS_EXTERNAL;
 			dependencies[2].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-			dependencies[2].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+			dependencies[2].dstStageMask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 			dependencies[2].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-			dependencies[2].dstAccessMask = VK_ACCESS_INPUT_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-			dependencies[2].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-			// tonemap -> blit to backbuffer
-			dependencies[3].srcSubpass = 2;
-			dependencies[3].dstSubpass = VK_SUBPASS_EXTERNAL;
-			dependencies[3].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-			dependencies[3].dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-			dependencies[3].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-			dependencies[3].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			dependencies[2].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
 			VkRenderPassCreateInfo renderPassInfo{ VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
 			renderPassInfo.attachmentCount = static_cast<uint32_t>(sizeof(attachmentDescriptions) / sizeof(attachmentDescriptions[0]));
 			renderPassInfo.pAttachments = attachmentDescriptions;
-			renderPassInfo.subpassCount = 3;
+			renderPassInfo.subpassCount = static_cast<uint32_t>(sizeof(subpasses) / sizeof(subpasses[0]));
 			renderPassInfo.pSubpasses = subpasses;
-			renderPassInfo.dependencyCount = 4;
+			renderPassInfo.dependencyCount = static_cast<uint32_t>(sizeof(dependencies) / sizeof(dependencies[0]));
 			renderPassInfo.pDependencies = dependencies;
 
 			if (vkCreateRenderPass(m_context.getDevice(), &renderPassInfo, nullptr, &m_mainRenderPass) != VK_SUCCESS)
@@ -368,13 +405,13 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
 			{
 				VkImageView framebufferAttachments[3];
-				framebufferAttachments[0] = m_colorImageView[i];
-				framebufferAttachments[1] = m_depthImageView[i];
-				framebufferAttachments[2] = m_tonemappedImageView[i];
+				framebufferAttachments[0] = m_depthStencilImageView[i];
+				framebufferAttachments[1] = m_colorImageView[i];
+				framebufferAttachments[2] = m_diffuse0ImageView[i];
 
 				VkFramebufferCreateInfo framebufferCreateInfo{ VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
 				framebufferCreateInfo.renderPass = m_mainRenderPass;
-				framebufferCreateInfo.attachmentCount = 3;
+				framebufferCreateInfo.attachmentCount = static_cast<uint32_t>(sizeof(framebufferAttachments) / sizeof(framebufferAttachments[0]));
 				framebufferCreateInfo.pAttachments = framebufferAttachments;
 				framebufferCreateInfo.width = m_width;
 				framebufferCreateInfo.height = m_height;
@@ -534,12 +571,12 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 		VkDescriptorPoolSize poolSizes[] =
 		{
 			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, FRAMES_IN_FLIGHT },
-			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, FRAMES_IN_FLIGHT /*shadow maps*/ + (textureCount + 4 /*cubemaps*/) },
-			{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, FRAMES_IN_FLIGHT }
+			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, FRAMES_IN_FLIGHT * (1 /*shadow maps*/ + 4 /*depth and diffuse for 2 sss blur passes*/ + 2/* postprocessing input*/) + (textureCount + 4 /*cubemaps*/) },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, FRAMES_IN_FLIGHT * 3 /* 2 sss blur passes + 1 postprocessing pass*/ }
 		};
 
 		VkDescriptorPoolCreateInfo poolCreateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-		poolCreateInfo.maxSets = FRAMES_IN_FLIGHT * 2 + 1;
+		poolCreateInfo.maxSets = FRAMES_IN_FLIGHT * 4 + 1;
 		poolCreateInfo.poolSizeCount = 3;
 		poolCreateInfo.pPoolSizes = poolSizes;
 
@@ -733,26 +770,115 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			vkUpdateDescriptorSets(m_context.getDevice(), static_cast<uint32_t>(sizeof(descriptorWrites) / sizeof(descriptorWrites[0])), descriptorWrites, 0, nullptr);
 		}
 
-		// tonemap set
+		// sss blur sets
 		{
 			VkDescriptorSetLayoutBinding bindings[] =
 			{
-				{ 0, VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
+				{ 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, &m_linearSamplerClamp },
+				{ 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, &m_pointSamplerClamp },
+				{ 2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr },
 			};
 
 			VkDescriptorSetLayoutCreateInfo layoutCreateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
 			layoutCreateInfo.bindingCount = static_cast<uint32_t>(sizeof(bindings) / sizeof(bindings[0]));
 			layoutCreateInfo.pBindings = bindings;
 
-			if (vkCreateDescriptorSetLayout(m_context.getDevice(), &layoutCreateInfo, nullptr, &m_tonemapDescriptorSetLayout) != VK_SUCCESS)
+			if (vkCreateDescriptorSetLayout(m_context.getDevice(), &layoutCreateInfo, nullptr, &m_sssBlurDescriptorSetLayout) != VK_SUCCESS)
 			{
 				util::fatalExit("Failed to create descriptor set layout!", EXIT_FAILURE);
 			}
 
-			VkDescriptorSetLayout setLayouts[FRAMES_IN_FLIGHT];
-			for (size_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+			VkDescriptorSetLayout setLayouts[FRAMES_IN_FLIGHT * 2];
+			for (size_t i = 0; i < FRAMES_IN_FLIGHT * 2; ++i)
 			{
-				setLayouts[i] = m_tonemapDescriptorSetLayout;
+				setLayouts[i] = m_sssBlurDescriptorSetLayout;
+			}
+
+			VkDescriptorSetAllocateInfo setAllocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+			setAllocInfo.descriptorPool = m_descriptorPool;
+			setAllocInfo.descriptorSetCount = FRAMES_IN_FLIGHT * 2;
+			setAllocInfo.pSetLayouts = setLayouts;
+
+			if (vkAllocateDescriptorSets(m_context.getDevice(), &setAllocInfo, m_sssBlurDescriptorSet) != VK_SUCCESS)
+			{
+				util::fatalExit("Failed to allocate descriptor sets!", EXIT_FAILURE);
+			}
+
+			VkDescriptorImageInfo inputImageInfos[FRAMES_IN_FLIGHT * 2];
+			VkDescriptorImageInfo depthImageInfos[FRAMES_IN_FLIGHT * 2];
+			VkDescriptorImageInfo resultImageInfos[FRAMES_IN_FLIGHT * 2];
+			VkWriteDescriptorSet descriptorWrites[FRAMES_IN_FLIGHT * 6];
+
+			for (size_t i = 0; i < FRAMES_IN_FLIGHT * 2; ++i)
+			{
+				// input
+				auto &inputImageInfo = inputImageInfos[i];
+				inputImageInfo.sampler = nullptr;
+				inputImageInfo.imageView = (i % 2 == 0) ? m_diffuse0ImageView[i / 2] : m_diffuse1ImageView[i / 2];
+				inputImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+				auto &inputWrite = descriptorWrites[i * 3];
+				inputWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+				inputWrite.dstSet = m_sssBlurDescriptorSet[i];
+				inputWrite.dstBinding = 0;
+				inputWrite.descriptorCount = 1;
+				inputWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				inputWrite.pImageInfo = &inputImageInfo;
+
+				// depth
+				auto &depthImageInfo = depthImageInfos[i];
+				depthImageInfo.sampler = nullptr;
+				depthImageInfo.imageView = m_depthImageView[i / 2];
+				depthImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+				auto &depthWrite = descriptorWrites[i * 3 + 1];
+				depthWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+				depthWrite.dstSet = m_sssBlurDescriptorSet[i];
+				depthWrite.dstBinding = 1;
+				depthWrite.descriptorCount = 1;
+				depthWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				depthWrite.pImageInfo = &depthImageInfo;
+
+				// result
+				auto &resultImageInfo = resultImageInfos[i];
+				resultImageInfo.sampler = nullptr;
+				resultImageInfo.imageView = (i % 2 == 0) ? m_diffuse1ImageView[i / 2] : m_diffuse0ImageView[i / 2];
+				resultImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+				auto &resultWrite = descriptorWrites[i * 3 + 2];
+				resultWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+				resultWrite.dstSet = m_sssBlurDescriptorSet[i];
+				resultWrite.dstBinding = 2;
+				resultWrite.descriptorCount = 1;
+				resultWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+				resultWrite.pImageInfo = &resultImageInfo;
+			}
+
+			vkUpdateDescriptorSets(m_context.getDevice(), static_cast<uint32_t>(sizeof(descriptorWrites) / sizeof(descriptorWrites[0])), descriptorWrites, 0, nullptr);
+		}
+
+		// postprocessing set
+		{
+			VkDescriptorSetLayoutBinding bindings[] =
+			{
+				{ 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, &m_pointSamplerClamp },
+				{ 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, &m_pointSamplerClamp },
+				{ 2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr },
+			};
+
+			VkDescriptorSetLayoutCreateInfo layoutCreateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+			layoutCreateInfo.bindingCount = static_cast<uint32_t>(sizeof(bindings) / sizeof(bindings[0]));
+			layoutCreateInfo.pBindings = bindings;
+
+			if (vkCreateDescriptorSetLayout(m_context.getDevice(), &layoutCreateInfo, nullptr, &m_postprocessingDescriptorSetLayout) != VK_SUCCESS)
+			{
+				util::fatalExit("Failed to create descriptor set layout!", EXIT_FAILURE);
+			}
+
+			VkDescriptorSetLayout setLayouts[FRAMES_IN_FLIGHT * 2];
+			for (size_t i = 0; i < FRAMES_IN_FLIGHT * 2; ++i)
+			{
+				setLayouts[i] = m_postprocessingDescriptorSetLayout;
 			}
 
 			VkDescriptorSetAllocateInfo setAllocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
@@ -760,43 +886,73 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			setAllocInfo.descriptorSetCount = FRAMES_IN_FLIGHT;
 			setAllocInfo.pSetLayouts = setLayouts;
 
-
-			if (vkAllocateDescriptorSets(m_context.getDevice(), &setAllocInfo, m_tonemapDescriptorSet) != VK_SUCCESS)
+			if (vkAllocateDescriptorSets(m_context.getDevice(), &setAllocInfo, m_postprocessingDescriptorSet) != VK_SUCCESS)
 			{
 				util::fatalExit("Failed to allocate descriptor sets!", EXIT_FAILURE);
 			}
 
-			VkDescriptorImageInfo imageInfos[FRAMES_IN_FLIGHT];
-			VkWriteDescriptorSet descriptorWrites[FRAMES_IN_FLIGHT];
+			VkDescriptorImageInfo colorImageInfos[FRAMES_IN_FLIGHT];
+			VkDescriptorImageInfo diffuseImageInfos[FRAMES_IN_FLIGHT];
+			VkDescriptorImageInfo resultImageInfos[FRAMES_IN_FLIGHT];
+			VkWriteDescriptorSet descriptorWrites[FRAMES_IN_FLIGHT * 3];
 
 			for (size_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
 			{
-				auto &imageInfo = imageInfos[i];
-				imageInfo.sampler = nullptr;
-				imageInfo.imageView = m_colorImageView[i];
-				imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				// color
+				auto &colorImageInfo = colorImageInfos[i];
+				colorImageInfo.sampler = nullptr;
+				colorImageInfo.imageView = m_colorImageView[i];
+				colorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-				auto &write = descriptorWrites[i];
-				write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-				write.dstSet = m_tonemapDescriptorSet[i];
-				write.dstBinding = 0;
-				write.descriptorCount = 1;
-				write.descriptorType = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
-				write.pImageInfo = &imageInfo;
+				auto &colorWrite = descriptorWrites[i * 3];
+				colorWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+				colorWrite.dstSet = m_postprocessingDescriptorSet[i];
+				colorWrite.dstBinding = 0;
+				colorWrite.descriptorCount = 1;
+				colorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				colorWrite.pImageInfo = &colorImageInfo;
+
+				// diffuse
+				auto &diffuseImageInfo = diffuseImageInfos[i];
+				diffuseImageInfo.sampler = nullptr;
+				diffuseImageInfo.imageView = m_diffuse0ImageView[i];
+				diffuseImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+				auto &diffuseWrite = descriptorWrites[i * 3 + 1];
+				diffuseWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+				diffuseWrite.dstSet = m_postprocessingDescriptorSet[i];
+				diffuseWrite.dstBinding = 1;
+				diffuseWrite.descriptorCount = 1;
+				diffuseWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				diffuseWrite.pImageInfo = &diffuseImageInfo;
+
+				// result
+				auto &resultImageInfo = resultImageInfos[i];
+				resultImageInfo.sampler = nullptr;
+				resultImageInfo.imageView = m_tonemappedImageView[i];
+				resultImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+				auto &resultWrite = descriptorWrites[i * 3 + 2];
+				resultWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+				resultWrite.dstSet = m_postprocessingDescriptorSet[i];
+				resultWrite.dstBinding = 2;
+				resultWrite.descriptorCount = 1;
+				resultWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+				resultWrite.pImageInfo = &resultImageInfo;
 			}
 
 			vkUpdateDescriptorSets(m_context.getDevice(), static_cast<uint32_t>(sizeof(descriptorWrites) / sizeof(descriptorWrites[0])), descriptorWrites, 0, nullptr);
 		}
 	}
 
-	m_shadowPipeline = ShadowPipeline::create(m_context.getDevice(), m_shadowRenderPass, 0, 0, nullptr);
-
 	VkDescriptorSetLayout lightingDescriptorSetLayouts[] = { m_textureDescriptorSetLayout, m_lightingDescriptorSetLayout };
-	m_lightingPipeline = LightingPipeline::create(m_context.getDevice(), m_mainRenderPass, 0, 2, lightingDescriptorSetLayouts);
 
+	m_shadowPipeline = ShadowPipeline::create(m_context.getDevice(), m_shadowRenderPass, 0, 0, nullptr);
+	m_lightingPipeline = SSSLightingPipeline::create(m_context.getDevice(), m_mainRenderPass, 0, 2, lightingDescriptorSetLayouts);
 	m_skyboxPipeline = SkyboxPipeline::create(m_context.getDevice(), m_mainRenderPass, 1, 1, &m_textureDescriptorSetLayout);
-
-	m_tonemapPipeline = TonemapPipeline::create(m_context.getDevice(), m_mainRenderPass, 2, 1, &m_tonemapDescriptorSetLayout);
+	m_sssBlurPipeline0 = SSSBlurPipeline::create(m_context.getDevice(), 1, &m_sssBlurDescriptorSetLayout);
+	m_sssBlurPipeline1 = SSSBlurPipeline::create(m_context.getDevice(), 1, &m_sssBlurDescriptorSetLayout);
+	m_posprocessingPipeline = PostprocessingPipeline::create(m_context.getDevice(), 1, &m_postprocessingDescriptorSetLayout);
 }
 
 sss::vulkan::Renderer::~Renderer()
@@ -820,9 +976,9 @@ sss::vulkan::Renderer::~Renderer()
 			vkFreeMemory(device, m_colorImageMemory[i], nullptr);
 
 			// depth
-			vkDestroyImage(device, m_depthImage[i], nullptr);
-			vkDestroyImageView(device, m_depthImageView[i], nullptr);
-			vkFreeMemory(device, m_depthImageMemory[i], nullptr);
+			vkDestroyImage(device, m_depthStencilImage[i], nullptr);
+			vkDestroyImageView(device, m_depthStencilImageView[i], nullptr);
+			vkFreeMemory(device, m_depthStencilImageMemory[i], nullptr);
 		}
 
 		// destroy framebuffers
@@ -936,21 +1092,22 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 		// main renderpass
 		{
 			VkClearValue clearValues[3];
-			// first element of clearValues intentionally left empty, as the color attachment is not cleared and this element is thus ignored
-			clearValues[0].color.float32[0] = 0.0f;
-			clearValues[0].color.float32[1] = 0.0f;
-			clearValues[0].color.float32[2] = 0.0f;
-			clearValues[0].color.float32[3] = 1.0f;
 
-			// depth/stencil clear values:
-			clearValues[1].depthStencil.depth = 1.0f;
-			clearValues[1].depthStencil.stencil = 0;
+			// depth/stencil
+			clearValues[0].depthStencil.depth = 1.0f;
+			clearValues[0].depthStencil.stencil = 0;
 
-			// tonemap result
-			clearValues[2].color.uint32[0] = 0;
-			clearValues[2].color.uint32[1] = 0;
-			clearValues[2].color.uint32[2] = 0;
-			clearValues[2].color.uint32[3] = 1;
+			// color
+			clearValues[1].color.float32[0] = 0.0f;
+			clearValues[1].color.float32[1] = 0.0f;
+			clearValues[1].color.float32[2] = 0.0f;
+			clearValues[1].color.float32[3] = 0.0f;
+
+			// diffuse0
+			clearValues[2].color.float32[0] = 0.0f;
+			clearValues[2].color.float32[1] = 0.0f;
+			clearValues[2].color.float32[2] = 0.0f;
+			clearValues[2].color.float32[3] = 0.0f;
 
 			VkRenderPassBeginInfo renderPassInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
 			renderPassInfo.renderPass = m_mainRenderPass;
@@ -1033,35 +1190,145 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 
 				vkCmdDraw(curCmdBuf, 3, 1, 0, 0);
 			}
+			vkCmdEndRenderPass(curCmdBuf);
+		}
 
-			// tonemap
+		// sss blur 0
+		{
+			// transition diffuse1 image layout to VK_IMAGE_LAYOUT_GENERAL
 			{
-				vkCmdNextSubpass(curCmdBuf, VK_SUBPASS_CONTENTS_INLINE);
+				VkImageMemoryBarrier imageBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+				imageBarrier.srcAccessMask = 0;
+				imageBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+				imageBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+				imageBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+				imageBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				imageBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				imageBarrier.image = m_diffuse1Image[resourceIndex];
+				imageBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-				vkCmdBindPipeline(curCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_tonemapPipeline.first);
-
-				vkCmdBindDescriptorSets(curCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_tonemapPipeline.second, 0, 1, &m_tonemapDescriptorSet[resourceIndex], 0, nullptr);
-
-				VkViewport viewport{ 0.0f, 0.0f, static_cast<float>(m_width), static_cast<float>(m_height), 0.0f, 1.0f };
-				VkRect2D scissor{ { 0, 0 }, { m_width, m_height } };
-
-				vkCmdSetViewport(curCmdBuf, 0, 1, &viewport);
-				vkCmdSetScissor(curCmdBuf, 0, 1, &scissor);
-
-				struct PushConsts
-				{
-					float exposure;
-				};
-
-				PushConsts pushConsts;
-				pushConsts.exposure = 1.0f;
-
-				vkCmdPushConstants(curCmdBuf, m_tonemapPipeline.second, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pushConsts), &pushConsts);
-
-				vkCmdDraw(curCmdBuf, 3, 1, 0, 0);
+				vkCmdPipelineBarrier(curCmdBuf, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &imageBarrier);
 			}
 
-			vkCmdEndRenderPass(curCmdBuf);
+			vkCmdBindPipeline(curCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_sssBlurPipeline0.first);
+
+			vkCmdBindDescriptorSets(curCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_sssBlurPipeline0.second, 0, 1, &m_sssBlurDescriptorSet[resourceIndex * 2], 0, nullptr);
+
+			using namespace glm;
+			struct PushConsts
+			{
+				vec2 texelSize;
+				vec2 dir;
+				float sssWidth;
+				float fovy;
+			};
+
+			PushConsts pushConsts;
+			pushConsts.texelSize = 1.0f / glm::vec2(m_width, m_height);
+			pushConsts.dir = glm::vec2(1.0f, 0.0f);
+			pushConsts.sssWidth = 0.01f * 1.0f / tanf(glm::radians(40.0f) * 0.5f) * (m_height / static_cast<float>(m_width));
+			pushConsts.fovy = glm::radians(40.0f);
+
+			vkCmdPushConstants(curCmdBuf, m_sssBlurPipeline0.second, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConsts), &pushConsts);
+
+			vkCmdDispatch(curCmdBuf, (m_width + 15) / 16, (m_height + 15) / 16, 1);
+		}
+
+		// sss blur 1
+		{
+			// barriers
+			{
+				VkImageMemoryBarrier imageBarriers[2];
+
+				// transition diffuse1 image layout to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+				imageBarriers[0] = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+				imageBarriers[0].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+				imageBarriers[0].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+				imageBarriers[0].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+				imageBarriers[0].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				imageBarriers[0].image = m_diffuse1Image[resourceIndex];
+				imageBarriers[0].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+				// transition diffuse0 image layout to VK_IMAGE_LAYOUT_GENERAL
+				imageBarriers[1] = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+				imageBarriers[1].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+				imageBarriers[1].dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+				imageBarriers[1].oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				imageBarriers[1].newLayout = VK_IMAGE_LAYOUT_GENERAL;
+				imageBarriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				imageBarriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				imageBarriers[1].image = m_diffuse0Image[resourceIndex];
+				imageBarriers[1].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+				vkCmdPipelineBarrier(curCmdBuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 2, imageBarriers);
+			}
+
+			vkCmdBindPipeline(curCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_sssBlurPipeline1.first);
+
+			vkCmdBindDescriptorSets(curCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_sssBlurPipeline1.second, 0, 1, &m_sssBlurDescriptorSet[resourceIndex * 2 + 1], 0, nullptr);
+
+			using namespace glm;
+			struct PushConsts
+			{
+				vec2 texelSize;
+				vec2 dir;
+				float sssWidth;
+				float fovy;
+			};
+
+			PushConsts pushConsts;
+			pushConsts.texelSize = 1.0f / glm::vec2(m_width, m_height);
+			pushConsts.dir = glm::vec2(0.0f, 1.0f);
+			pushConsts.sssWidth = 0.01f * 1.0f / tanf(glm::radians(40.0f) * 0.5f) * (m_height / static_cast<float>(m_width));
+			pushConsts.fovy = glm::radians(40.0f);
+
+			vkCmdPushConstants(curCmdBuf, m_sssBlurPipeline1.second, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConsts), &pushConsts);
+
+			vkCmdDispatch(curCmdBuf, (m_width + 15) / 16, (m_height + 15) / 16, 1);
+		}
+
+		// postprocessing
+		{
+			// barriers
+			{
+				VkImageMemoryBarrier imageBarriers[2];
+
+				// transition tonemapped image layout to VK_IMAGE_LAYOUT_GENERAL
+				imageBarriers[0] = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+				imageBarriers[0].srcAccessMask = 0;
+				imageBarriers[0].dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+				imageBarriers[0].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+				imageBarriers[0].newLayout = VK_IMAGE_LAYOUT_GENERAL;
+				imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				imageBarriers[0].image = m_tonemappedImage[resourceIndex];
+				imageBarriers[0].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+				// transition diffuse0 image layout to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+				imageBarriers[1] = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+				imageBarriers[1].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+				imageBarriers[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+				imageBarriers[1].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+				imageBarriers[1].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				imageBarriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				imageBarriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				imageBarriers[1].image = m_diffuse0Image[resourceIndex];
+				imageBarriers[1].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+				vkCmdPipelineBarrier(curCmdBuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 2, imageBarriers);
+			}
+
+			vkCmdBindPipeline(curCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_posprocessingPipeline.first);
+
+			vkCmdBindDescriptorSets(curCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_posprocessingPipeline.second, 0, 1, &m_postprocessingDescriptorSet[resourceIndex], 0, nullptr);
+
+			float exposure = 1.0f;
+
+			vkCmdPushConstants(curCmdBuf, m_posprocessingPipeline.second, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(exposure), &exposure);
+
+			vkCmdDispatch(curCmdBuf, (m_width + 15) / 16, (m_height + 15) / 16, 1);
 		}
 	}
 	vkEndCommandBuffer(curCmdBuf);
@@ -1100,19 +1367,33 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 	// swapchain image dependent part of the frame
 	vkBeginCommandBuffer(curCmdBuf, &beginInfo);
 	{
-		// transition backbuffer image layout to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+		// barriers
 		{
-			VkImageMemoryBarrier imageBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-			imageBarrier.srcAccessMask = 0;
-			imageBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-			imageBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			imageBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			imageBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			imageBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			imageBarrier.image = m_swapChain.getImage(swapChainImageIndex);
-			imageBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			VkImageMemoryBarrier imageBarriers[2];
 
-			vkCmdPipelineBarrier(curCmdBuf, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &imageBarrier);
+			// transition tonemapped image layout to VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+			imageBarriers[0] = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+			imageBarriers[0].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+			imageBarriers[0].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			imageBarriers[0].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+			imageBarriers[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageBarriers[0].image = m_tonemappedImage[resourceIndex];
+			imageBarriers[0].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+			// transition backbuffer image layout to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+			imageBarriers[1] = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+			imageBarriers[1].srcAccessMask = 0;
+			imageBarriers[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			imageBarriers[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			imageBarriers[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			imageBarriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageBarriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageBarriers[1].image = m_swapChain.getImage(swapChainImageIndex);
+			imageBarriers[1].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+			vkCmdPipelineBarrier(curCmdBuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 2, imageBarriers);
 		}
 
 		// blit color image to backbuffer

@@ -1,0 +1,100 @@
+#version 450
+
+struct PushConsts
+{
+	vec2 texelSize;
+	vec2 dir;
+	float sssWidth;
+	float fovy;
+};
+
+layout(set = 0, binding = 0) uniform sampler2D uInputTexture;
+layout(set = 0, binding = 1) uniform sampler2D uDepthTexture;
+layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D uResultImage;
+
+layout(push_constant) uniform PUSH_CONSTS 
+{
+	PushConsts uPushConsts;
+};
+
+layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+vec4 kernel[] = 
+{
+	vec4(0.530605, 0.613514, 0.739601, 0),
+	vec4(0.000973794, 1.11862e-005, 9.43437e-007, -3),
+	vec4(0.00333804, 7.85443e-005, 1.2945e-005, -2.52083),
+	vec4(0.00500364, 0.00020094, 5.28848e-005, -2.08333),
+	vec4(0.00700976, 0.00049366, 0.000151938, -1.6875),
+	vec4(0.0094389, 0.00139119, 0.000416598, -1.33333),
+	vec4(0.0128496, 0.00356329, 0.00132016, -1.02083),
+	vec4(0.017924, 0.00711691, 0.00347194, -0.75),
+	vec4(0.0263642, 0.0119715, 0.00684598, -0.520833),
+	vec4(0.0410172, 0.0199899, 0.0118481, -0.333333),
+	vec4(0.0493588, 0.0367726, 0.0219485, -0.1875),
+	vec4(0.0402784, 0.0657244, 0.04631, -0.0833333),
+	vec4(0.0211412, 0.0459286, 0.0378196, -0.0208333),
+	vec4(0.0211412, 0.0459286, 0.0378196, 0.0208333),
+	vec4(0.0402784, 0.0657244, 0.04631, 0.0833333),
+	vec4(0.0493588, 0.0367726, 0.0219485, 0.1875),
+	vec4(0.0410172, 0.0199899, 0.0118481, 0.333333),
+	vec4(0.0263642, 0.0119715, 0.00684598, 0.520833),
+	vec4(0.017924, 0.00711691, 0.00347194, 0.75),
+	vec4(0.0128496, 0.00356329, 0.00132016, 1.02083),
+	vec4(0.0094389, 0.00139119, 0.000416598, 1.33333),
+	vec4(0.00700976, 0.00049366, 0.000151938, 1.6875),
+	vec4(0.00500364, 0.00020094, 5.28848e-005, 2.08333),
+	vec4(0.00333804, 7.85443e-005, 1.2945e-005, 2.52083),
+	vec4(0.000973794, 1.11862e-005, 9.43437e-007, 3),
+};
+
+float linearizeDepth(float z)
+{
+	float n = 0.01;
+	float f = 50.0;
+	return (n * f) / (f - z * (f - n));
+}
+
+void main() 
+{
+	vec4 colorM = texelFetch(uInputTexture, ivec2(gl_GlobalInvocationID.xy), 0);
+	
+	float depthM = linearizeDepth(texelFetch(uDepthTexture, ivec2(gl_GlobalInvocationID.xy), 0).x);
+	
+	float rayRadiusUV = 0.5 * uPushConsts.sssWidth / depthM;
+	
+	// calculate the sssWidth scale (1.0 for a unit plane sitting on the projection window)
+	//float distanceToProjectionWindow = 1.0 / tan(0.5 * radians(uPushConsts.fovy));
+	//float scale = distanceToProjectionWindow / depthM;
+	
+	// calculate the final step to fetch the surrounding pixels:
+	vec2 finalStep = rayRadiusUV * uPushConsts.dir;
+	finalStep *= colorM.a;
+	finalStep *= 1.0 / 3.0; // divide by 3 as the kernels range from -3 to 3
+	
+	// accumulate the center sample:
+	vec4 colorBlurred = colorM;
+	colorBlurred.rgb *= kernel[0].rgb;
+	
+	vec2 texCoord = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) * uPushConsts.texelSize;
+	
+	// accumulate the other samples:
+	for (int i = 1; i < 25; ++i)
+	{
+		// fetch color and depth for current sample:
+		vec2 offset = texCoord + kernel[i].a * finalStep;
+		vec4 color = textureLod(uInputTexture, offset, 0.0);
+		
+		//float depth = linearizeDepth(textureLod(uDepthTexture, offset, 0.0).x);
+		//float s = clamp(300.0 * distanceToProjectionWindow * uPushConsts.sssWidth * abs(depthM - depth) , 0.0, 1.0);
+		//color.rgb = mix(color.rgb, colorM.rgb, s);
+		
+		// accumulate:
+		colorBlurred.rgb += kernel[i].rgb * color.rgb;
+	}
+	
+	//if (gl_GlobalInvocationID.x < 800)
+	//	imageStore(uResultImage, ivec2(gl_GlobalInvocationID.xy), colorM);
+	//else
+		imageStore(uResultImage, ivec2(gl_GlobalInvocationID.xy), colorBlurred);
+}

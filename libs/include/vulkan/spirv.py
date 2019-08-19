@@ -44,8 +44,8 @@
 
 spv = {
     'MagicNumber' : 0x07230203,
-    'Version' : 0x00010300,
-    'Revision' : 7,
+    'Version' : 0x00010400,
+    'Revision' : 1,
     'OpCodeMask' : 0xffff,
     'WordCountShift' : 16,
 
@@ -141,6 +141,12 @@ spv = {
         'DerivativeGroupQuadsNV' : 5289,
         'DerivativeGroupLinearNV' : 5290,
         'OutputTrianglesNV' : 5298,
+        'PixelInterlockOrderedEXT' : 5366,
+        'PixelInterlockUnorderedEXT' : 5367,
+        'SampleInterlockOrderedEXT' : 5368,
+        'SampleInterlockUnorderedEXT' : 5369,
+        'ShadingRateInterlockOrderedEXT' : 5370,
+        'ShadingRateInterlockUnorderedEXT' : 5371,
     },
 
     'StorageClass' : {
@@ -288,6 +294,8 @@ spv = {
         'MakeTexelVisibleKHR' : 9,
         'NonPrivateTexelKHR' : 10,
         'VolatileTexelKHR' : 11,
+        'SignExtend' : 12,
+        'ZeroExtend' : 13,
     },
 
     'ImageOperandsMask' : {
@@ -304,6 +312,8 @@ spv = {
         'MakeTexelVisibleKHR' : 0x00000200,
         'NonPrivateTexelKHR' : 0x00000400,
         'VolatileTexelKHR' : 0x00000800,
+        'SignExtend' : 0x00001000,
+        'ZeroExtend' : 0x00002000,
     },
 
     'FPFastMathModeShift' : {
@@ -379,6 +389,7 @@ spv = {
         'NonWritable' : 24,
         'NonReadable' : 25,
         'Uniform' : 26,
+        'UniformId' : 27,
         'SaturatedConversion' : 28,
         'Stream' : 29,
         'Location' : 30,
@@ -413,8 +424,11 @@ spv = {
         'NonUniformEXT' : 5300,
         'RestrictPointerEXT' : 5355,
         'AliasedPointerEXT' : 5356,
+        'CounterBuffer' : 5634,
         'HlslCounterBufferGOOGLE' : 5634,
         'HlslSemanticGOOGLE' : 5635,
+        'UserSemantic' : 5635,
+        'UserTypeGOOGLE' : 5636,
     },
 
     'BuiltIn' : {
@@ -516,6 +530,10 @@ spv = {
         'HitTNV' : 5332,
         'HitKindNV' : 5333,
         'IncomingRayFlagsNV' : 5351,
+        'WarpsPerSMNV' : 5374,
+        'SMCountNV' : 5375,
+        'WarpIDNV' : 5376,
+        'SMIDNV' : 5377,
     },
 
     'SelectionControlShift' : {
@@ -534,6 +552,11 @@ spv = {
         'DontUnroll' : 1,
         'DependencyInfinite' : 2,
         'DependencyLength' : 3,
+        'MinIterations' : 4,
+        'MaxIterations' : 5,
+        'IterationMultiple' : 6,
+        'PeelCount' : 7,
+        'PartialCount' : 8,
     },
 
     'LoopControlMask' : {
@@ -542,6 +565,11 @@ spv = {
         'DontUnroll' : 0x00000002,
         'DependencyInfinite' : 0x00000004,
         'DependencyLength' : 0x00000008,
+        'MinIterations' : 0x00000010,
+        'MaxIterations' : 0x00000020,
+        'IterationMultiple' : 0x00000040,
+        'PeelCount' : 0x00000080,
+        'PartialCount' : 0x00000100,
     },
 
     'FunctionControlShift' : {
@@ -573,6 +601,7 @@ spv = {
         'OutputMemoryKHR' : 12,
         'MakeAvailableKHR' : 13,
         'MakeVisibleKHR' : 14,
+        'Volatile' : 15,
     },
 
     'MemorySemanticsMask' : {
@@ -590,6 +619,7 @@ spv = {
         'OutputMemoryKHR' : 0x00001000,
         'MakeAvailableKHR' : 0x00002000,
         'MakeVisibleKHR' : 0x00004000,
+        'Volatile' : 0x00008000,
     },
 
     'MemoryAccessShift' : {
@@ -774,10 +804,16 @@ spv = {
         'PhysicalStorageBufferAddressesEXT' : 5347,
         'ComputeDerivativeGroupLinearNV' : 5350,
         'CooperativeMatrixNV' : 5357,
+        'FragmentShaderSampleInterlockEXT' : 5363,
+        'FragmentShaderShadingRateInterlockEXT' : 5372,
+        'ShaderSMBuiltinsNV' : 5373,
+        'FragmentShaderPixelInterlockEXT' : 5378,
+        'DemoteToHelperInvocationEXT' : 5379,
         'SubgroupShuffleINTEL' : 5568,
         'SubgroupBufferBlockIOINTEL' : 5569,
         'SubgroupImageBlockIOINTEL' : 5570,
         'SubgroupImageMediaBlockIOINTEL' : 5579,
+        'IntegerFunctions2INTEL' : 5584,
         'SubgroupAvcMotionEstimationINTEL' : 5696,
         'SubgroupAvcMotionEstimationIntraINTEL' : 5697,
         'SubgroupAvcMotionEstimationChromaINTEL' : 5698,
@@ -1124,6 +1160,10 @@ spv = {
         'OpGroupNonUniformLogicalXor' : 364,
         'OpGroupNonUniformQuadBroadcast' : 365,
         'OpGroupNonUniformQuadSwap' : 366,
+        'OpCopyLogical' : 400,
+        'OpPtrEqual' : 401,
+        'OpPtrNotEqual' : 402,
+        'OpPtrDiff' : 403,
         'OpSubgroupBallotKHR' : 4421,
         'OpSubgroupFirstInvocationKHR' : 4422,
         'OpSubgroupAllKHR' : 4428,
@@ -1154,6 +1194,10 @@ spv = {
         'OpCooperativeMatrixStoreNV' : 5360,
         'OpCooperativeMatrixMulAddNV' : 5361,
         'OpCooperativeMatrixLengthNV' : 5362,
+        'OpBeginInvocationInterlockEXT' : 5364,
+        'OpEndInvocationInterlockEXT' : 5365,
+        'OpDemoteToHelperInvocationEXT' : 5380,
+        'OpIsHelperInvocationEXT' : 5381,
         'OpSubgroupShuffleINTEL' : 5571,
         'OpSubgroupShuffleDownINTEL' : 5572,
         'OpSubgroupShuffleUpINTEL' : 5573,
@@ -1164,7 +1208,23 @@ spv = {
         'OpSubgroupImageBlockWriteINTEL' : 5578,
         'OpSubgroupImageMediaBlockReadINTEL' : 5580,
         'OpSubgroupImageMediaBlockWriteINTEL' : 5581,
+        'OpUCountLeadingZerosINTEL' : 5585,
+        'OpUCountTrailingZerosINTEL' : 5586,
+        'OpAbsISubINTEL' : 5587,
+        'OpAbsUSubINTEL' : 5588,
+        'OpIAddSatINTEL' : 5589,
+        'OpUAddSatINTEL' : 5590,
+        'OpIAverageINTEL' : 5591,
+        'OpUAverageINTEL' : 5592,
+        'OpIAverageRoundedINTEL' : 5593,
+        'OpUAverageRoundedINTEL' : 5594,
+        'OpISubSatINTEL' : 5595,
+        'OpUSubSatINTEL' : 5596,
+        'OpIMul32x16INTEL' : 5597,
+        'OpUMul32x16INTEL' : 5598,
+        'OpDecorateString' : 5632,
         'OpDecorateStringGOOGLE' : 5632,
+        'OpMemberDecorateString' : 5633,
         'OpMemberDecorateStringGOOGLE' : 5633,
         'OpVmeImageINTEL' : 5699,
         'OpTypeVmeImageINTEL' : 5700,

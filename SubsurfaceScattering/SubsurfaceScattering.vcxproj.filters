@@ -51,9 +51,6 @@
     <ClCompile Include="src\vulkan\Renderer.cpp">
       <Filter>src\vulkan</Filter>
     </ClCompile>
-    <ClCompile Include="src\vulkan\pipelines\LightingPipeline.cpp">
-      <Filter>src\vulkan\pipelines</Filter>
-    </ClCompile>
     <ClCompile Include="src\vulkan\pipelines\ShaderModule.cpp">
       <Filter>src\vulkan\pipelines</Filter>
     </ClCompile>
@@ -75,7 +72,13 @@
     <ClCompile Include="src\vulkan\pipelines\SkyboxPipeline.cpp">
       <Filter>src\vulkan\pipelines</Filter>
     </ClCompile>
-    <ClCompile Include="src\vulkan\pipelines\TonemapPipeline.cpp">
+    <ClCompile Include="src\vulkan\pipelines\SSSLightingPipeline.cpp">
+      <Filter>src\vulkan\pipelines</Filter>
+    </ClCompile>
+    <ClCompile Include="src\vulkan\pipelines\SSSBlurPipeline.cpp">
+      <Filter>src\vulkan\pipelines</Filter>
+    </ClCompile>
+    <ClCompile Include="src\vulkan\pipelines\PostprocessingPipeline.cpp">
       <Filter>src\vulkan\pipelines</Filter>
     </ClCompile>
   </ItemGroup>
@@ -113,9 +116,6 @@
     <ClInclude Include="src\vulkan\Renderer.h">
       <Filter>src\vulkan</Filter>
     </ClInclude>
-    <ClInclude Include="src\vulkan\pipelines\LightingPipeline.h">
-      <Filter>src\vulkan\pipelines</Filter>
-    </ClInclude>
     <ClInclude Include="src\vulkan\pipelines\ShaderModule.h">
       <Filter>src\vulkan\pipelines</Filter>
     </ClInclude>
@@ -137,7 +137,13 @@
     <ClInclude Include="src\vulkan\pipelines\SkyboxPipeline.h">
       <Filter>src\vulkan\pipelines</Filter>
     </ClInclude>
-    <ClInclude Include="src\vulkan\pipelines\TonemapPipeline.h">
+    <ClInclude Include="src\vulkan\pipelines\SSSLightingPipeline.h">
+      <Filter>src\vulkan\pipelines</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vulkan\pipelines\SSSBlurPipeline.h">
+      <Filter>src\vulkan\pipelines</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vulkan\pipelines\PostprocessingPipeline.h">
       <Filter>src\vulkan\pipelines</Filter>
     </ClInclude>
   </ItemGroup>
