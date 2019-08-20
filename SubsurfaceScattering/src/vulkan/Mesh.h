@@ -1,8 +1,6 @@
 #pragma once
 #include "volk.h"
 #include <memory>
-#include <vector>
-#include <glm/vec3.hpp>
 
 namespace sss
 {
@@ -11,7 +9,7 @@ namespace sss
 		class Mesh
 		{
 		public:
-			static std::vector<std::shared_ptr<Mesh>> load(VkPhysicalDevice physicalDevice, VkDevice device, VkQueue queue, VkCommandPool cmdPool, const char *path);
+			static std::shared_ptr<Mesh> load(VkPhysicalDevice physicalDevice, VkDevice device, VkQueue queue, VkCommandPool cmdPool, const char *path);
 			Mesh() = default;
 			Mesh(const Mesh &) = delete;
 			Mesh(const Mesh &&) = delete;
@@ -22,8 +20,6 @@ namespace sss
 			uint32_t getIndexCount() const;
 			VkBuffer getVertexBuffer() const;
 			VkBuffer getIndexBuffer() const;
-			glm::vec3 getMinCorner() const;
-			glm::vec3 getMaxCorner() const;
 
 		private:
 			VkDevice m_device;
@@ -33,8 +29,6 @@ namespace sss
 			VkBuffer m_indexBuffer;
 			VkDeviceMemory m_vertexBufferMemory;
 			VkDeviceMemory m_indexBufferMemory;
-			glm::vec3 m_minCorner;
-			glm::vec3 m_maxCorner;
 		};
 	}
 }

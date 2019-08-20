@@ -1,15 +1,13 @@
 #version 450
 
-struct PushConsts
+layout(set = 1, binding = 0) uniform CONSTANTS
 {
 	mat4 viewProjectionMatrix;
 	mat4 shadowMatrix;
-};
-
-layout(push_constant) uniform PUSH_CONSTS 
-{
-	PushConsts uPushConsts;
-};
+	vec4 lightPositionRadius;
+	vec4 lightColorInvSqrAttRadius;
+	vec4 cameraPosition;
+} uConsts;
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
@@ -21,7 +19,7 @@ layout(location = 2) out vec3 vWorldPos;
 
 void main() 
 {
-	gl_Position = uPushConsts.viewProjectionMatrix * vec4(inPosition, 1.0);
+	gl_Position = uConsts.viewProjectionMatrix * vec4(inPosition, 1.0);
 	
 	vTexCoord = inTexCoord;
 	vNormal = inNormal;

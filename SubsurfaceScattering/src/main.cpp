@@ -24,7 +24,7 @@ int main()
 	uint64_t previousTickCount = timer.getElapsedTicks();
 	uint64_t frameCount = 0;
 
-	float lightTheta = 0.0f;
+	float lightTheta = glm::radians(60.0f);
 
 	while (!window.shouldClose())
 	{
@@ -50,7 +50,7 @@ int main()
 
 		const glm::mat4 viewMatrix = camera.getViewMatrix();
 		const glm::mat4 viewProjection = vulkanCorrection * glm::perspective(glm::radians(40.0f), width / float(height), 0.01f, 50.0f) * viewMatrix;
-		const glm::mat4 shadowMatrix = vulkanCorrection * glm::perspective(glm::radians(40.0f), 1.0f, 0.1f, 3.0f) * glm::lookAt(lightPos, glm::vec3(0.0f, 0.3f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+		const glm::mat4 shadowMatrix = vulkanCorrection * glm::perspective(glm::radians(60.0f), 1.0f, 0.1f, 3.0f) * glm::lookAt(lightPos, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 		const float lightRadius = 5.0f;
 		const float lightLuminousPower = 700.0f;
 		const glm::vec3 lightColor = glm::vec3(255.0f, 206.0f, 166.0f) / 255.0f;

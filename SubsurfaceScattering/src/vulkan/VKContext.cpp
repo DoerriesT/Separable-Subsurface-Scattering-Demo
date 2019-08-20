@@ -221,7 +221,8 @@ sss::vulkan::VKContext::VKContext(void *windowHandle)
 				&& extensionsSupported
 				&& swapChainAdequate
 				&& supportedFeatures.samplerAnisotropy
-				&& supportedFeatures.textureCompressionBC)
+				&& supportedFeatures.textureCompressionBC
+				&& supportedFeatures.shaderSampledImageArrayDynamicIndexing)
 			{
 				m_physicalDevice = physicalDevice;
 				m_graphicsQueueFamilyIndex = static_cast<uint32_t>(graphicsFamilyIndex);
@@ -250,6 +251,7 @@ sss::vulkan::VKContext::VKContext(void *windowHandle)
 		VkPhysicalDeviceFeatures deviceFeatures{};
 		deviceFeatures.samplerAnisotropy = VK_TRUE;
 		deviceFeatures.textureCompressionBC = VK_TRUE;
+		deviceFeatures.shaderSampledImageArrayDynamicIndexing = VK_TRUE;
 
 		m_enabledFeatures = deviceFeatures;
 

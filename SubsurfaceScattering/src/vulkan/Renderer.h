@@ -3,6 +3,7 @@
 #include "SwapChain.h"
 #include <glm/mat4x4.hpp>
 #include <memory>
+#include "Material.h"
 
 namespace sss
 {
@@ -62,6 +63,7 @@ namespace sss
 			uint8_t *m_constantBufferPtr[FRAMES_IN_FLIGHT];
 			std::pair<VkPipeline, VkPipelineLayout> m_shadowPipeline;
 			std::pair<VkPipeline, VkPipelineLayout> m_lightingPipeline;
+			std::pair<VkPipeline, VkPipelineLayout> m_sssLightingPipeline;
 			std::pair<VkPipeline, VkPipelineLayout> m_skyboxPipeline;
 			std::pair<VkPipeline, VkPipelineLayout> m_sssBlurPipeline0;
 			std::pair<VkPipeline, VkPipelineLayout> m_sssBlurPipeline1;
@@ -85,7 +87,8 @@ namespace sss
 			std::shared_ptr<Texture> m_brdfLUT;
 			std::shared_ptr<Texture> m_skyboxTexture;
 			std::vector<std::shared_ptr<Texture>> m_textures;
-			std::vector<std::vector<std::shared_ptr<Mesh>>> m_meshes;
+			std::vector<std::shared_ptr<Mesh>> m_meshes;
+			std::vector<std::pair<Material, bool>> m_materials; // bool is true if SSS
 		};
 	}
 }

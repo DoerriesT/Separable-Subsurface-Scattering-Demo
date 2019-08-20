@@ -1,11 +1,12 @@
 #include "Renderer.h"
-#include <glm/trigonometric.hpp>	
+#include <glm/trigonometric.hpp>
+#include <glm/packing.hpp>
 #include "utility/Utility.h"
 #include "VKUtility.h"
 #include "vulkan/Mesh.h"
 #include "vulkan/Texture.h"
 #include "pipelines/ShadowPipeline.h"
-#include "pipelines/SSSLightingPipeline.h"
+#include "pipelines/LightingPipeline.h"
 #include "pipelines/SkyboxPipeline.h"
 #include "pipelines/SSSBlurPipeline.h"
 #include "pipelines/PostprocessingPipeline.h"
@@ -24,6 +25,10 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 		"resources/textures/head_gloss.dds",
 		"resources/textures/head_specular.dds",
 		"resources/textures/head_cavity.dds",
+		"resources/textures/jacket_albedo.dds",
+		"resources/textures/jacket_normal.dds",
+		"resources/textures/jacket_gloss.dds",
+		"resources/textures/jacket_specular.dds",
 	};
 
 	for (const auto &path : texturePaths)
@@ -36,18 +41,60 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 	m_irradianceTexture = Texture::load(m_context.getPhysicalDevice(), m_context.getDevice(), m_context.getGraphicsQueue(), m_context.getGraphicsCommandPool(), "resources/textures/irradianceMap.dds", true);
 	m_brdfLUT = Texture::load(m_context.getPhysicalDevice(), m_context.getDevice(), m_context.getGraphicsQueue(), m_context.getGraphicsCommandPool(), "resources/textures/brdfLut.dds");
 
-	const char *meshPaths[] =
+	// load meshes
 	{
-		"resources/meshes/head.obj"
-	};
+		Material headMaterial;
+		headMaterial.gloss = 0.638f;
+		headMaterial.specular = 0.097f;
+		headMaterial.albedo = 0xFFFFFFFF;
+		headMaterial.albedoTexture = 1;
+		headMaterial.normalTexture = 2;
+		headMaterial.glossTexture = 3;
+		headMaterial.specularTexture = 4;
+		headMaterial.cavityTexture = 5;
 
-	for (const auto &path : meshPaths)
-	{
-		m_meshes.push_back(Mesh::load(m_context.getPhysicalDevice(), m_context.getDevice(), m_context.getGraphicsQueue(), m_context.getGraphicsCommandPool(), path));
+		Material jacketMaterial;
+		jacketMaterial.gloss = 0.376f;
+		jacketMaterial.specular = 0.162f;
+		jacketMaterial.albedo = 0xFFFFFFFF;
+		jacketMaterial.albedoTexture = 6;
+		jacketMaterial.normalTexture = 7;
+		jacketMaterial.glossTexture = 8;
+		jacketMaterial.specularTexture = 9;
+		jacketMaterial.cavityTexture = 0;
+
+		Material browsMaterial;
+		browsMaterial.gloss = 0.0f;
+		browsMaterial.specular = 0.007f;
+		browsMaterial.albedo = glm::packUnorm4x8(glm::vec4(50.0f, 36.0f, 26.0f, 255.0f) / 255.0f);
+		browsMaterial.albedoTexture = 0;
+		browsMaterial.normalTexture = 0;
+		browsMaterial.glossTexture = 0;
+		browsMaterial.specularTexture = 0;
+		browsMaterial.cavityTexture = 0;
+
+		Material eyelashesMaterial;
+		eyelashesMaterial.gloss = 0.43f;
+		eyelashesMaterial.specular = 0.162f;
+		eyelashesMaterial.albedo = glm::packUnorm4x8(glm::vec4(24.0f, 24.0f, 24.0f, 255.0f) / 255.0f);
+		eyelashesMaterial.albedoTexture = 0;
+		eyelashesMaterial.normalTexture = 0;
+		eyelashesMaterial.glossTexture = 0;
+		eyelashesMaterial.specularTexture = 0;
+		eyelashesMaterial.cavityTexture = 0;
+
+		std::pair<Material, bool> materials[] = { {headMaterial, true}, {jacketMaterial, false}, {browsMaterial, false}, {eyelashesMaterial, false} };
+		const char *meshPaths[] = { "resources/meshes/head.mesh", "resources/meshes/jacket.mesh", "resources/meshes/brows.mesh", "resources/meshes/eyelashes.mesh" };
+
+		for (size_t i = 0; i < sizeof(meshPaths) / sizeof(meshPaths[0]); ++i)
+		{
+			m_meshes.push_back(Mesh::load(m_context.getPhysicalDevice(), m_context.getDevice(), m_context.getGraphicsQueue(), m_context.getGraphicsCommandPool(), meshPaths[i]));
+			m_materials.push_back(materials[i]);
+		}
 	}
 
+
 	const size_t textureCount = sizeof(texturePaths) / sizeof(texturePaths[0]);
-	const size_t meshCount = sizeof(meshPaths) / sizeof(meshPaths[0]);
 
 	// create images and views and buffers
 	{
@@ -56,7 +103,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			// constant buffer
 			{
 				VkBufferCreateInfo createInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-				createInfo.size = sizeof(glm::vec4) * 3;
+				createInfo.size = sizeof(glm::vec4) * 11;
 				createInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 				createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
@@ -337,31 +384,39 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 		VkAttachmentReference colorAttachmentRef{ 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
 		VkAttachmentReference diffuse0AttachmentRef{ 2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
 
-		VkAttachmentReference lightingPassAttachmentRefs[] = { colorAttachmentRef, diffuse0AttachmentRef };
+		VkAttachmentReference sssLightingPassAttachmentRefs[] = { colorAttachmentRef, diffuse0AttachmentRef };
 
-		VkSubpassDescription subpasses[2]{};
+		VkSubpassDescription subpasses[3]{};
 
 		// lighting subpass
 		{
 			subpasses[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-			subpasses[0].colorAttachmentCount = 2;
-			subpasses[0].pColorAttachments = lightingPassAttachmentRefs;
+			subpasses[0].colorAttachmentCount = 1;
+			subpasses[0].pColorAttachments = &colorAttachmentRef;
 			subpasses[0].pDepthStencilAttachment = &depthAttachmentRef;
+		}
+
+		// sss lighting subpass
+		{
+			subpasses[1].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+			subpasses[1].colorAttachmentCount = 2;
+			subpasses[1].pColorAttachments = sssLightingPassAttachmentRefs;
+			subpasses[1].pDepthStencilAttachment = &depthAttachmentRef;
 		}
 
 		// skybox subpass
 		{
-			subpasses[1].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-			subpasses[1].colorAttachmentCount = 1;
-			subpasses[1].pColorAttachments = &colorAttachmentRef;
-			subpasses[1].pDepthStencilAttachment = &depthAttachmentRef;
+			subpasses[2].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+			subpasses[2].colorAttachmentCount = 1;
+			subpasses[2].pColorAttachments = &colorAttachmentRef;
+			subpasses[2].pDepthStencilAttachment = &depthAttachmentRef;
 		}
 
 		// create renderpass
 		{
-			VkSubpassDependency dependencies[3]{};
+			VkSubpassDependency dependencies[5]{};
 
-			// shadow map generation -> shadow map sampling
+			// shadow map generation -> shadow map sampling (lighting pass)
 			dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
 			dependencies[0].dstSubpass = 0;
 			dependencies[0].srcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
@@ -369,21 +424,40 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			dependencies[0].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 			dependencies[0].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-			// shadow map sampling and shading -> skybox
+			// lighting pass -> sss lighting pass
 			dependencies[1].srcSubpass = 0;
 			dependencies[1].dstSubpass = 1;
 			dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
 			dependencies[1].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
 			dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-			dependencies[1].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+			dependencies[1].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
-			// shading -> sss blur
-			dependencies[2].srcSubpass = 0;
-			dependencies[2].dstSubpass = VK_SUBPASS_EXTERNAL;
-			dependencies[2].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-			dependencies[2].dstStageMask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-			dependencies[2].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-			dependencies[2].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			// sss lighting pass -> skybox
+			dependencies[2].srcSubpass = 1;
+			dependencies[2].dstSubpass = 2;
+			dependencies[2].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+			dependencies[2].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+			dependencies[2].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			dependencies[2].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+			dependencies[2].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+			// sss lighting pass -> sss blur
+			dependencies[3].srcSubpass = 1;
+			dependencies[3].dstSubpass = VK_SUBPASS_EXTERNAL;
+			dependencies[3].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+			dependencies[3].dstStageMask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+			dependencies[3].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			dependencies[3].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+			// skybox pass -> post processing
+			dependencies[4].srcSubpass = 2;
+			dependencies[4].dstSubpass = VK_SUBPASS_EXTERNAL;
+			dependencies[4].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+			dependencies[4].dstStageMask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+			dependencies[4].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+			dependencies[4].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			dependencies[4].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
 			VkRenderPassCreateInfo renderPassInfo{ VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
 			renderPassInfo.attachmentCount = static_cast<uint32_t>(sizeof(attachmentDescriptions) / sizeof(attachmentDescriptions[0]));
@@ -595,7 +669,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 
 			VkDescriptorSetLayoutBinding bindings[] =
 			{
-				{ 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, textureCount, VK_SHADER_STAGE_FRAGMENT_BIT, immutableTexSamplers },
+				{ 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, textureCount, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
 				{ 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, &m_linearSamplerClamp },
 				{ 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, &m_linearSamplerClamp },
 				{ 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, &m_linearSamplerClamp },
@@ -626,7 +700,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 				for (size_t i = 0; i < textureCount; ++i)
 				{
 					auto &textureImageInfo = textureImageInfos[i];
-					textureImageInfo.sampler = nullptr;
+					textureImageInfo.sampler = m_linearSamplerClamp;
 					textureImageInfo.imageView = m_textures[i]->getView();
 					textureImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 				}
@@ -702,7 +776,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 		{
 			VkDescriptorSetLayoutBinding bindings[] =
 			{
-				{ 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
+				{ 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
 				{ 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, &m_shadowSampler },
 			};
 
@@ -742,7 +816,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 				auto &bufferInfo = constantBufferInfos[i];
 				bufferInfo.buffer = m_constantBuffer[i];
 				bufferInfo.offset = 0;
-				bufferInfo.range = sizeof(glm::vec4) * 3;
+				bufferInfo.range = sizeof(glm::vec4) * 11;
 
 				auto &constantBufferWrite = descriptorWrites[i * 2];
 				constantBufferWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
@@ -948,8 +1022,9 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 	VkDescriptorSetLayout lightingDescriptorSetLayouts[] = { m_textureDescriptorSetLayout, m_lightingDescriptorSetLayout };
 
 	m_shadowPipeline = ShadowPipeline::create(m_context.getDevice(), m_shadowRenderPass, 0, 0, nullptr);
-	m_lightingPipeline = SSSLightingPipeline::create(m_context.getDevice(), m_mainRenderPass, 0, 2, lightingDescriptorSetLayouts);
-	m_skyboxPipeline = SkyboxPipeline::create(m_context.getDevice(), m_mainRenderPass, 1, 1, &m_textureDescriptorSetLayout);
+	m_lightingPipeline = LightingPipeline::create(m_context.getDevice(), m_mainRenderPass, 0, 2, lightingDescriptorSetLayouts, false);
+	m_sssLightingPipeline = LightingPipeline::create(m_context.getDevice(), m_mainRenderPass, 1, 2, lightingDescriptorSetLayouts, true);
+	m_skyboxPipeline = SkyboxPipeline::create(m_context.getDevice(), m_mainRenderPass, 2, 1, &m_textureDescriptorSetLayout);
 	m_sssBlurPipeline0 = SSSBlurPipeline::create(m_context.getDevice(), 1, &m_sssBlurDescriptorSetLayout);
 	m_sssBlurPipeline1 = SSSBlurPipeline::create(m_context.getDevice(), 1, &m_sssBlurDescriptorSetLayout);
 	m_posprocessingPipeline = PostprocessingPipeline::create(m_context.getDevice(), 1, &m_postprocessingDescriptorSetLayout);
@@ -999,8 +1074,8 @@ sss::vulkan::Renderer::~Renderer()
 	vkFreeCommandBuffers(device, m_context.getGraphicsCommandPool(), FRAMES_IN_FLIGHT * 2, m_commandBuffers);
 
 	// destroy pipelines
-	vkDestroyPipeline(device, m_lightingPipeline.first, nullptr);
-	vkDestroyPipelineLayout(device, m_lightingPipeline.second, nullptr);
+	vkDestroyPipeline(device, m_sssLightingPipeline.first, nullptr);
+	vkDestroyPipelineLayout(device, m_sssLightingPipeline.second, nullptr);
 
 }
 
@@ -1013,9 +1088,11 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 	vkResetFences(m_context.getDevice(), 1, &m_frameFinishedFence[resourceIndex]);
 
 	// update constant buffer content
-	((glm::vec4 *)m_constantBufferPtr[resourceIndex])[0] = lightPositionRadius;
-	((glm::vec4 *)m_constantBufferPtr[resourceIndex])[1] = lightColorInvSqrAttRadius;
-	((glm::vec4 *)m_constantBufferPtr[resourceIndex])[2] = cameraPosition;
+	((glm::mat4 *)m_constantBufferPtr[resourceIndex])[0] = viewProjection;
+	((glm::mat4 *)m_constantBufferPtr[resourceIndex])[1] = shadowMatrix;
+	((glm::vec4 *)m_constantBufferPtr[resourceIndex])[8] = lightPositionRadius;
+	((glm::vec4 *)m_constantBufferPtr[resourceIndex])[9] = lightColorInvSqrAttRadius;
+	((glm::vec4 *)m_constantBufferPtr[resourceIndex])[10] = cameraPosition;
 
 	// command buffer for the first half of the frame...
 	vkResetCommandBuffer(m_commandBuffers[resourceIndex * 2], 0);
@@ -1059,30 +1136,18 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 				vkCmdSetViewport(curCmdBuf, 0, 1, &viewport);
 				vkCmdSetScissor(curCmdBuf, 0, 1, &scissor);
 
-				using namespace glm;
-				struct PushConsts
+				for (const auto &submesh : m_meshes)
 				{
-					mat4 viewProjectionMatrix;
-				};
+					vkCmdBindIndexBuffer(curCmdBuf, submesh->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
-				PushConsts pushConsts;
-				pushConsts.viewProjectionMatrix = shadowMatrix;
+					VkBuffer vertexBuffer = submesh->getVertexBuffer();
+					VkDeviceSize vertexBufferOffset = 0;
 
-				for (const auto &mesh : m_meshes)
-				{
-					for (const auto &submesh : mesh)
-					{
-						vkCmdBindIndexBuffer(curCmdBuf, submesh->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT16);
+					vkCmdBindVertexBuffers(curCmdBuf, 0, 1, &vertexBuffer, &vertexBufferOffset);
 
-						VkBuffer vertexBuffer = submesh->getVertexBuffer();
-						VkDeviceSize vertexBufferOffset = 0;
+					vkCmdPushConstants(curCmdBuf, m_shadowPipeline.second, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(shadowMatrix), &shadowMatrix);
 
-						vkCmdBindVertexBuffers(curCmdBuf, 0, 1, &vertexBuffer, &vertexBufferOffset);
-
-						vkCmdPushConstants(curCmdBuf, m_shadowPipeline.second, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pushConsts), &pushConsts);
-
-						vkCmdDrawIndexed(curCmdBuf, submesh->getIndexCount(), 1, 0, 0, 0);
-					}
+					vkCmdDrawIndexed(curCmdBuf, submesh->getIndexCount(), 1, 0, 0, 0);
 				}
 			}
 
@@ -1119,7 +1184,7 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 
 			vkCmdBeginRenderPass(curCmdBuf, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-			// actual lighting
+			// lighting
 			{
 				vkCmdBindPipeline(curCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_lightingPipeline.first);
 
@@ -1132,34 +1197,72 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 				vkCmdSetViewport(curCmdBuf, 0, 1, &viewport);
 				vkCmdSetScissor(curCmdBuf, 0, 1, &scissor);
 
-				using namespace glm;
-				struct PushConsts
-				{
-					mat4 viewProjectionMatrix;
-					mat4 shadowMatrix;
-				};
 
-				PushConsts pushConsts;
-				pushConsts.viewProjectionMatrix = viewProjection;
-				pushConsts.shadowMatrix = shadowMatrix;
-
-				for (const auto &mesh : m_meshes)
+				for (size_t i = 0; i < m_meshes.size(); ++i)
 				{
-					for (const auto &submesh : mesh)
+					const auto &submesh = m_meshes[i];
+					const auto &material = m_materials[i];
+
+					// test if mesh is supposed to be rendered without SSS
+					if (material.second)
 					{
-						vkCmdBindIndexBuffer(curCmdBuf, submesh->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT16);
-
-						VkBuffer vertexBuffer = submesh->getVertexBuffer();
-						uint32_t vertexCount = submesh->getVertexCount();
-						VkBuffer vertexBuffers[] = { vertexBuffer, vertexBuffer, vertexBuffer };
-						VkDeviceSize vertexBufferOffsets[] = { 0, vertexCount * sizeof(float) * 3, vertexCount * sizeof(float) * 6 };
-
-						vkCmdBindVertexBuffers(curCmdBuf, 0, 3, vertexBuffers, vertexBufferOffsets);
-
-						vkCmdPushConstants(curCmdBuf, m_lightingPipeline.second, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pushConsts), &pushConsts);
-
-						vkCmdDrawIndexed(curCmdBuf, submesh->getIndexCount(), 1, 0, 0, 0);
+						continue;
 					}
+
+					vkCmdBindIndexBuffer(curCmdBuf, submesh->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+					VkBuffer vertexBuffer = submesh->getVertexBuffer();
+					uint32_t vertexCount = submesh->getVertexCount();
+					VkBuffer vertexBuffers[] = { vertexBuffer, vertexBuffer, vertexBuffer };
+					VkDeviceSize vertexBufferOffsets[] = { 0, vertexCount * sizeof(float) * 3, vertexCount * sizeof(float) * 6 };
+
+					vkCmdBindVertexBuffers(curCmdBuf, 0, 3, vertexBuffers, vertexBufferOffsets);
+
+					vkCmdPushConstants(curCmdBuf, m_lightingPipeline.second, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(material.first), &material.first);
+
+					vkCmdDrawIndexed(curCmdBuf, submesh->getIndexCount(), 1, 0, 0, 0);
+				}
+			}
+
+			// sss lighting
+			{
+				vkCmdNextSubpass(curCmdBuf, VK_SUBPASS_CONTENTS_INLINE);
+
+				vkCmdBindPipeline(curCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_sssLightingPipeline.first);
+
+				VkDescriptorSet sets[] = { m_textureDescriptorSet, m_lightingDescriptorSet[resourceIndex] };
+				vkCmdBindDescriptorSets(curCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, m_sssLightingPipeline.second, 0, 2, sets, 0, nullptr);
+
+				VkViewport viewport{ 0.0f, 0.0f, static_cast<float>(m_width), static_cast<float>(m_height), 0.0f, 1.0f };
+				VkRect2D scissor{ { 0, 0 }, { m_width, m_height } };
+
+				vkCmdSetViewport(curCmdBuf, 0, 1, &viewport);
+				vkCmdSetScissor(curCmdBuf, 0, 1, &scissor);
+
+
+				for (size_t i = 0; i < m_meshes.size(); ++i)
+				{
+					const auto &submesh = m_meshes[i];
+					const auto &material = m_materials[i];
+
+					// test if mesh is supposed to be rendered with SSS
+					if (!material.second)
+					{
+						continue;
+					}
+
+					vkCmdBindIndexBuffer(curCmdBuf, submesh->getIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+					VkBuffer vertexBuffer = submesh->getVertexBuffer();
+					uint32_t vertexCount = submesh->getVertexCount();
+					VkBuffer vertexBuffers[] = { vertexBuffer, vertexBuffer, vertexBuffer };
+					VkDeviceSize vertexBufferOffsets[] = { 0, vertexCount * sizeof(float) * 3, vertexCount * sizeof(float) * 6 };
+
+					vkCmdBindVertexBuffers(curCmdBuf, 0, 3, vertexBuffers, vertexBufferOffsets);
+
+					vkCmdPushConstants(curCmdBuf, m_sssLightingPipeline.second, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(material.first), &material.first);
+
+					vkCmdDrawIndexed(curCmdBuf, submesh->getIndexCount(), 1, 0, 0, 0);
 				}
 			}
 
@@ -1177,16 +1280,9 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 				vkCmdSetViewport(curCmdBuf, 0, 1, &viewport);
 				vkCmdSetScissor(curCmdBuf, 0, 1, &scissor);
 
-				using namespace glm;
-				struct PushConsts
-				{
-					mat4 invModelViewProjectionMatrix;
-				};
+				glm::mat4 invModelViewProjectionMatrix = glm::inverse(viewProjection);
 
-				PushConsts pushConsts;
-				pushConsts.invModelViewProjectionMatrix = glm::inverse(viewProjection);
-
-				vkCmdPushConstants(curCmdBuf, m_skyboxPipeline.second, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pushConsts), &pushConsts);
+				vkCmdPushConstants(curCmdBuf, m_skyboxPipeline.second, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(invModelViewProjectionMatrix), &invModelViewProjectionMatrix);
 
 				vkCmdDraw(curCmdBuf, 3, 1, 0, 0);
 			}

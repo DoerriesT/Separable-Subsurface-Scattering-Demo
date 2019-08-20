@@ -2,19 +2,31 @@
 
 #define PI (3.14159265359)
 
+#ifndef SSS
+#define SSS 0
+#endif // SSS
+
 struct PushConsts
 {
-	mat4 viewProjectionMatrix;
-	mat4 shadowMatrix;
+	float gloss;
+	float specular;
+	uint albedo;
+	uint albedoTexture;
+	uint normalTexture;
+	uint glossTexture;
+	uint specularTexture;
+	uint cavityTexture;
 };
 
-layout(set = 0, binding = 0) uniform sampler2D uTextures[5];
+layout(set = 0, binding = 0) uniform sampler2D uTextures[9];
 layout(set = 0, binding = 1) uniform sampler2D uBrdfLUT;
 layout(set = 0, binding = 2) uniform samplerCube uRadianceTexture;
 layout(set = 0, binding = 3) uniform samplerCube uIrradianceTexture;
 
 layout(set = 1, binding = 0) uniform CONSTANTS
 {
+	mat4 viewProjectionMatrix;
+	mat4 shadowMatrix;
 	vec4 lightPositionRadius;
 	vec4 lightColorInvSqrAttRadius;
 	vec4 cameraPosition;
@@ -33,8 +45,12 @@ layout(location = 0) in vec2 vTexCoord;
 layout(location = 1) in vec3 vNormal;
 layout(location = 2) in vec3 vWorldPos;
 
+#if SSS
 layout(location = 0) out vec4 oSpecular;
 layout(location = 1) out vec4 oDiffuse;
+#else
+layout(location = 0) out vec4 oColor;
+#endif // SSS
 
 // based on http://www.thetenthplanet.de/archives/1180
 mat3 calculateTBN( vec3 N, vec3 p, vec2 uv )
@@ -143,7 +159,7 @@ vec2 vogelDiskSample(int sampleIndex, int samplesCount, float phi)
 
 float calculateShadowFactor()
 {
-	vec4 shadowPos = uPushConsts.shadowMatrix * vec4(vWorldPos, 1.0);
+	vec4 shadowPos = uConsts.shadowMatrix * vec4(vWorldPos, 1.0);
 	shadowPos.xyz /= shadowPos.w;
 	shadowPos.xy = shadowPos.xy * 0.5 + 0.5;
 	
@@ -162,10 +178,14 @@ float calculateShadowFactor()
 
 void main() 
 {
-	// construct TBN matrix and transform tangent space normal into world space
-	const mat3 tbn = calculateTBN(normalize(vNormal), vWorldPos, vTexCoord);
-	const vec3 tangentSpaceNormal = texture(uTextures[1], vTexCoord).xyz * 2.0 - 1.0;
-	const vec3 N = normalize(tbn * tangentSpaceNormal);
+	vec3 N = normalize(vNormal);
+	if (uPushConsts.normalTexture != 0)
+	{
+		// construct TBN matrix and transform tangent space normal into world space
+		const mat3 tbn = calculateTBN(N, vWorldPos, vTexCoord);
+		const vec3 tangentSpaceNormal = texture(uTextures[uPushConsts.normalTexture - 1], vTexCoord).xyz * 2.0 - 1.0;
+		N = normalize(tbn * tangentSpaceNormal);
+	}
 	
 	// construct light vector and calculate radiance (factor in NdotL to avoid doing it twice for diffuse and specular term)
 	const vec3 unnormalizedLightVector = uConsts.lightPositionRadius.xyz - vWorldPos;
@@ -176,13 +196,26 @@ void main()
 						* max(dot(N, L), 0.0);
 	
 	const vec3 V = normalize(uConsts.cameraPosition.xyz - vWorldPos);
-	const vec3 albedo = accurateSRGBToLinear(texture(uTextures[0], vTexCoord).rgb);
-	const float roughness = 1.0 - texture(uTextures[2], vTexCoord).x * 0.638;
-	const vec3 F0 = texture(uTextures[3], vTexCoord).rgb * 0.272 * texture(uTextures[4], vTexCoord).x;
+	vec3 albedo = (uPushConsts.albedoTexture != 0) 
+				? accurateSRGBToLinear(texture(uTextures[uPushConsts.albedoTexture - 1], vTexCoord).rgb)
+				: unpackUnorm4x8(uPushConsts.albedo).rgb;
+
+	const float roughness = 1.0 - ((uPushConsts.glossTexture != 0) 
+								? texture(uTextures[uPushConsts.glossTexture - 1], vTexCoord).x * uPushConsts.gloss
+								: uPushConsts.gloss);
+					
+	const float cavity = (uPushConsts.cavityTexture != 0) ? texture(uTextures[uPushConsts.cavityTexture - 1], vTexCoord).x : 1.0;
+	const vec3 F0 = cavity * ((uPushConsts.specularTexture != 0) 
+							? texture(uTextures[uPushConsts.specularTexture - 1], vTexCoord).rgb * uPushConsts.specular
+							: vec3(uPushConsts.specular));
 	
+#if SSS
 	// keep diffuse and specular separate (need to be output in two different attachments as SSS is only applied on the diffuse term)
 	vec3 diffuseTerm = vec3(0.0);
 	vec3 specularTerm = vec3(0.0);
+#else
+	vec3 result = vec3(0.0);
+#endif // SSS
 	
 	// direct lighting
 	{
@@ -203,8 +236,12 @@ void main()
 		// because of energy conversion kD and kS must add up to 1.0.
 		const vec3 kD = (vec3(1.0) - F);
 		
+#if SSS
 		diffuseTerm = kD * albedo * (1.0 / PI) * radiance;
 		specularTerm = specular * radiance;
+#else
+		result = (kD * albedo * (1.0 / PI) + specular) * radiance;
+#endif // SSS
 	}
 	
 	// ambient lighting
@@ -215,16 +252,23 @@ void main()
 		
 		const vec3 irradiance = texture(uIrradianceTexture, N).rgb;
 		
-		diffuseTerm += kD * irradiance * albedo;
-		
 		// sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
 		const float MAX_REFLECTION_LOD = 4.0;
 		const vec3 prefilteredColor = textureLod(uRadianceTexture, reflect(-V, N), roughness * MAX_REFLECTION_LOD).rgb;    
 		const vec2 brdf = textureLod(uBrdfLUT, vec2(max(dot(N, V), 0.0), roughness), 0.0).rg;
 		
+#if SSS
+		diffuseTerm += kD * irradiance * albedo;
 		specularTerm += prefilteredColor * (F * brdf.x + brdf.y);
+#else
+		result += (kD * irradiance * albedo) + prefilteredColor * (F * brdf.x + brdf.y);
+#endif // SSS
 	}
 	
+#if SSS
 	oSpecular = vec4(specularTerm, 1.0);
 	oDiffuse = vec4(diffuseTerm, 1.0);
+#else
+	oColor = vec4(result, 1.0);
+#endif // SSS
 }
