@@ -59,13 +59,23 @@ void main()
 {
 	vec4 colorM = texelFetch(uInputTexture, ivec2(gl_GlobalInvocationID.xy), 0);
 	
+	// skip blurring for non SSS pixels
+	if (colorM.a == 0.0)
+	{
+		imageStore(uResultImage, ivec2(gl_GlobalInvocationID.xy), colorM);
+		return;
+	}
+	
 	float depthM = linearizeDepth(texelFetch(uDepthTexture, ivec2(gl_GlobalInvocationID.xy), 0).x);
 	
 	float rayRadiusUV = 0.5 * uPushConsts.sssWidth / depthM;
 	
-	// calculate the sssWidth scale (1.0 for a unit plane sitting on the projection window)
-	//float distanceToProjectionWindow = 1.0 / tan(0.5 * radians(uPushConsts.fovy));
-	//float scale = distanceToProjectionWindow / depthM;
+	// early out if kernel footprint is less than a pixel
+	if (rayRadiusUV <= uPushConsts.texelSize.x)
+	{
+		imageStore(uResultImage, ivec2(gl_GlobalInvocationID.xy), colorM);
+		return;
+	}
 	
 	// calculate the final step to fetch the surrounding pixels:
 	vec2 finalStep = rayRadiusUV * uPushConsts.dir;
@@ -84,17 +94,20 @@ void main()
 		// fetch color and depth for current sample:
 		vec2 offset = texCoord + kernel[i].a * finalStep;
 		vec4 color = textureLod(uInputTexture, offset, 0.0);
+		float depth = linearizeDepth(textureLod(uDepthTexture, offset, 0.0).x);
 		
-		//float depth = linearizeDepth(textureLod(uDepthTexture, offset, 0.0).x);
-		//float s = clamp(300.0 * distanceToProjectionWindow * uPushConsts.sssWidth * abs(depthM - depth) , 0.0, 1.0);
-		//color.rgb = mix(color.rgb, colorM.rgb, s);
+		// lerp back to center sample if depth difference too big
+		float maxDepthDiff = 0.01;
+		float alpha = min(distance(depth, depthM) / maxDepthDiff, maxDepthDiff);
+		
+		// reject sample if it isnt tagged as SSS
+		alpha *= 1.0 - color.a;
+		
+		color.rgb = mix(color.rgb, colorM.rgb, alpha);
 		
 		// accumulate:
 		colorBlurred.rgb += kernel[i].rgb * color.rgb;
 	}
-	
-	//if (gl_GlobalInvocationID.x < 800)
-	//	imageStore(uResultImage, ivec2(gl_GlobalInvocationID.xy), colorM);
-	//else
-		imageStore(uResultImage, ivec2(gl_GlobalInvocationID.xy), colorBlurred);
+
+	imageStore(uResultImage, ivec2(gl_GlobalInvocationID.xy), colorBlurred);
 }

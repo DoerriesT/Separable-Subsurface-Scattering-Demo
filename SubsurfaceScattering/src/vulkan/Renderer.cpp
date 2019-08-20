@@ -1316,14 +1316,12 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 				vec2 texelSize;
 				vec2 dir;
 				float sssWidth;
-				float fovy;
 			};
 
 			PushConsts pushConsts;
 			pushConsts.texelSize = 1.0f / glm::vec2(m_width, m_height);
 			pushConsts.dir = glm::vec2(1.0f, 0.0f);
 			pushConsts.sssWidth = 0.01f * 1.0f / tanf(glm::radians(40.0f) * 0.5f) * (m_height / static_cast<float>(m_width));
-			pushConsts.fovy = glm::radians(40.0f);
 
 			vkCmdPushConstants(curCmdBuf, m_sssBlurPipeline0.second, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConsts), &pushConsts);
 
@@ -1371,14 +1369,12 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 				vec2 texelSize;
 				vec2 dir;
 				float sssWidth;
-				float fovy;
 			};
 
 			PushConsts pushConsts;
 			pushConsts.texelSize = 1.0f / glm::vec2(m_width, m_height);
 			pushConsts.dir = glm::vec2(0.0f, 1.0f);
 			pushConsts.sssWidth = 0.01f * 1.0f / tanf(glm::radians(40.0f) * 0.5f) * (m_height / static_cast<float>(m_width));
-			pushConsts.fovy = glm::radians(40.0f);
 
 			vkCmdPushConstants(curCmdBuf, m_sssBlurPipeline1.second, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConsts), &pushConsts);
 

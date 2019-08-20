@@ -11,7 +11,6 @@ namespace
 		vec2 texelSize;
 		vec2 dir;
 		float sssWidth;
-		float fovy;
 	};
 }
 
