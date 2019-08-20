@@ -5,6 +5,9 @@
 #include "vulkan/Renderer.h"
 #include "input/ArcBallCamera.h"
 #include <glm/gtc/matrix_transform.hpp>
+#include "imgui/imgui.h"
+#include "imgui/imgui_impl_glfw.h"
+#include "imgui/imgui_impl_vulkan.h"
 
 using namespace sss;
 
@@ -26,6 +29,8 @@ int main()
 
 	float lightTheta = glm::radians(60.0f);
 
+	bool showDemoWindow = true;
+
 	while (!window.shouldClose())
 	{
 		timer.update();
@@ -34,6 +39,13 @@ int main()
 		window.pollEvents();
 		userInput.input();
 		camera.update(userInput.getMousePosDelta() * (userInput.isMouseButtonPressed(InputMouse::BUTTON_RIGHT) ? 1.0f : 0.0f), userInput.getScrollOffset().y);
+
+		ImGui_ImplVulkan_NewFrame();
+		ImGui_ImplGlfw_NewFrame();
+		ImGui::NewFrame();
+		if (showDemoWindow)
+			ImGui::ShowDemoWindow(&showDemoWindow);
+		ImGui::Render();
 
 		lightTheta += static_cast<float>(userInput.isKeyPressed(InputKey::LEFT)) * static_cast<float>(timer.getTimeDelta());
 		lightTheta -= static_cast<float>(userInput.isKeyPressed(InputKey::RIGHT)) * static_cast<float>(timer.getTimeDelta());

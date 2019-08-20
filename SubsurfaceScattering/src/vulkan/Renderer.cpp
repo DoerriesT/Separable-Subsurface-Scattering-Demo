@@ -10,6 +10,18 @@
 #include "pipelines/SkyboxPipeline.h"
 #include "pipelines/SSSBlurPipeline.h"
 #include "pipelines/PostprocessingPipeline.h"
+#include "imgui/imgui.h"
+#include "imgui/imgui_impl_glfw.h"
+#include "imgui/imgui_impl_vulkan.h"
+
+static void check_vk_result(VkResult err)
+{
+	if (err == 0)
+		return;
+	printf("VkResult %d\n", err);
+	if (err < 0)
+		abort();
+}
 
 
 sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t height)
@@ -266,7 +278,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 					VK_FORMAT_R8G8B8A8_UNORM,
 					m_width,
 					m_height,
-					VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+					VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
 					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 					0,
 					m_tonemappedImage[i],
@@ -499,6 +511,84 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 		}
 	}
 
+	// create gui renderpass
+	{
+		VkAttachmentDescription attachmentDescription{};
+		attachmentDescription.format = VK_FORMAT_R8G8B8A8_UNORM;
+		attachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
+		attachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+		attachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		attachmentDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		attachmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		attachmentDescription.initialLayout = VK_IMAGE_LAYOUT_GENERAL;
+		attachmentDescription.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+
+		VkAttachmentReference attachmentRef{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+
+		VkSubpassDescription subpass{};
+		subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+		subpass.colorAttachmentCount = 1;
+		subpass.pColorAttachments = &attachmentRef;
+
+
+		// create renderpass
+		{
+			VkSubpassDependency dependencies[2]{};
+
+			// tonemap -> gui
+			dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+			dependencies[0].dstSubpass = 0;
+			dependencies[0].srcStageMask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+			dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+			dependencies[0].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+			dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+			// gui -> blit
+			dependencies[1].srcSubpass = 0;
+			dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+			dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+			dependencies[1].dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+			dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+			dependencies[1].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+			VkRenderPassCreateInfo renderPassInfo{ VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+			renderPassInfo.attachmentCount = 1;
+			renderPassInfo.pAttachments = &attachmentDescription;
+			renderPassInfo.subpassCount = 1;
+			renderPassInfo.pSubpasses = &subpass;
+			renderPassInfo.dependencyCount = static_cast<uint32_t>(sizeof(dependencies) / sizeof(dependencies[0]));
+			renderPassInfo.pDependencies = dependencies;
+
+			if (vkCreateRenderPass(m_context.getDevice(), &renderPassInfo, nullptr, &m_guiRenderPass) != VK_SUCCESS)
+			{
+				util::fatalExit("Failed to create render pass!", EXIT_FAILURE);
+			}
+		}
+
+
+		// create framebuffers
+		{
+			for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+			{
+				VkImageView framebufferAttachment = m_tonemappedImageView[i];
+
+				VkFramebufferCreateInfo framebufferCreateInfo{ VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+				framebufferCreateInfo.renderPass = m_guiRenderPass;
+				framebufferCreateInfo.attachmentCount = 1;
+				framebufferCreateInfo.pAttachments = &framebufferAttachment;
+				framebufferCreateInfo.width = m_width;
+				framebufferCreateInfo.height = m_height;
+				framebufferCreateInfo.layers = 1;
+
+				if (vkCreateFramebuffer(m_context.getDevice(), &framebufferCreateInfo, nullptr, &m_guiFramebuffers[i]) != VK_SUCCESS)
+				{
+					util::fatalExit("Failed to create framebuffer!", EXIT_FAILURE);
+				}
+			}
+		}
+	}
+
 	// allocate command buffers
 	{
 		VkCommandBufferAllocateInfo cmdBufAllocInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
@@ -645,12 +735,12 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 		VkDescriptorPoolSize poolSizes[] =
 		{
 			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, FRAMES_IN_FLIGHT },
-			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, FRAMES_IN_FLIGHT * (1 /*shadow maps*/ + 4 /*depth and diffuse for 2 sss blur passes*/ + 2/* postprocessing input*/) + (textureCount + 4 /*cubemaps*/) },
+			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, FRAMES_IN_FLIGHT * (1 /*shadow maps*/ + 4 /*depth and diffuse for 2 sss blur passes*/ + 2/* postprocessing input*/) + (textureCount + 4 /*cubemaps*/) + 1 /*imgui*/ },
 			{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, FRAMES_IN_FLIGHT * 3 /* 2 sss blur passes + 1 postprocessing pass*/ }
 		};
 
 		VkDescriptorPoolCreateInfo poolCreateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-		poolCreateInfo.maxSets = FRAMES_IN_FLIGHT * 4 + 1;
+		poolCreateInfo.maxSets = FRAMES_IN_FLIGHT * 4 + 2;
 		poolCreateInfo.poolSizeCount = 3;
 		poolCreateInfo.pPoolSizes = poolSizes;
 
@@ -1028,6 +1118,40 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 	m_sssBlurPipeline0 = SSSBlurPipeline::create(m_context.getDevice(), 1, &m_sssBlurDescriptorSetLayout);
 	m_sssBlurPipeline1 = SSSBlurPipeline::create(m_context.getDevice(), 1, &m_sssBlurDescriptorSetLayout);
 	m_posprocessingPipeline = PostprocessingPipeline::create(m_context.getDevice(), 1, &m_postprocessingDescriptorSetLayout);
+
+	// imgui
+	{
+		// Setup Dear ImGui context
+		IMGUI_CHECKVERSION();
+		ImGui::CreateContext();
+		ImGuiIO& io = ImGui::GetIO(); (void)io;
+		//io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+		//io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+
+		// Setup Dear ImGui style
+		ImGui::StyleColorsDark();
+		//ImGui::StyleColorsClassic();
+
+		// Setup Platform/Renderer bindings
+		ImGui_ImplGlfw_InitForVulkan((GLFWwindow *)windowHandle, true);
+		ImGui_ImplVulkan_InitInfo init_info = {};
+		init_info.Instance = m_context.getInstance();
+		init_info.PhysicalDevice = m_context.getPhysicalDevice();
+		init_info.Device = m_context.getDevice();
+		init_info.QueueFamily = m_context.getGraphicsQueueFamilyIndex();
+		init_info.Queue = m_context.getGraphicsQueue();
+		init_info.PipelineCache = VK_NULL_HANDLE;
+		init_info.DescriptorPool = m_descriptorPool;
+		init_info.Allocator = nullptr;
+		init_info.MinImageCount = m_swapChain.getImageCount();
+		init_info.ImageCount = m_swapChain.getImageCount();
+		init_info.CheckVkResultFn = check_vk_result;
+		ImGui_ImplVulkan_Init(&init_info, m_guiRenderPass);
+
+		auto cmdBuf = vkutil::beginSingleTimeCommands(m_context.getDevice(), m_context.getGraphicsCommandPool());
+		ImGui_ImplVulkan_CreateFontsTexture(cmdBuf);
+		vkutil::endSingleTimeCommands(m_context.getDevice(), m_context.getGraphicsQueue(), m_context.getGraphicsCommandPool(), cmdBuf);
+	}
 }
 
 sss::vulkan::Renderer::~Renderer()
@@ -1150,7 +1274,6 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 					vkCmdDrawIndexed(curCmdBuf, submesh->getIndexCount(), 1, 0, 0, 0);
 				}
 			}
-
 			vkCmdEndRenderPass(curCmdBuf);
 		}
 
@@ -1422,6 +1545,25 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 
 			vkCmdDispatch(curCmdBuf, (m_width + 15) / 16, (m_height + 15) / 16, 1);
 		}
+
+		// gui renderpass
+		{
+			VkClearValue clearValue;
+
+			VkRenderPassBeginInfo renderPassInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+			renderPassInfo.renderPass = m_guiRenderPass;
+			renderPassInfo.framebuffer = m_guiFramebuffers[resourceIndex];
+			renderPassInfo.renderArea.offset = { 0, 0 };
+			renderPassInfo.renderArea.extent = { m_width, m_height };
+			renderPassInfo.clearValueCount = 1;
+			renderPassInfo.pClearValues = &clearValue;
+
+			vkCmdBeginRenderPass(curCmdBuf, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+			ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), curCmdBuf);
+
+			vkCmdEndRenderPass(curCmdBuf);
+		}
 	}
 	vkEndCommandBuffer(curCmdBuf);
 
@@ -1461,31 +1603,19 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 	{
 		// barriers
 		{
-			VkImageMemoryBarrier imageBarriers[2];
-
-			// transition tonemapped image layout to VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+			VkImageMemoryBarrier imageBarriers[1];
+			// transition backbuffer image layout to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
 			imageBarriers[0] = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-			imageBarriers[0].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-			imageBarriers[0].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-			imageBarriers[0].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-			imageBarriers[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			imageBarriers[0].srcAccessMask = 0;
+			imageBarriers[0].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			imageBarriers[0].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			imageBarriers[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 			imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			imageBarriers[0].image = m_tonemappedImage[resourceIndex];
+			imageBarriers[0].image = m_swapChain.getImage(swapChainImageIndex);
 			imageBarriers[0].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-			// transition backbuffer image layout to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-			imageBarriers[1] = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-			imageBarriers[1].srcAccessMask = 0;
-			imageBarriers[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-			imageBarriers[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			imageBarriers[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			imageBarriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			imageBarriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			imageBarriers[1].image = m_swapChain.getImage(swapChainImageIndex);
-			imageBarriers[1].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-			vkCmdPipelineBarrier(curCmdBuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 2, imageBarriers);
+			vkCmdPipelineBarrier(curCmdBuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, imageBarriers);
 		}
 
 		// blit color image to backbuffer

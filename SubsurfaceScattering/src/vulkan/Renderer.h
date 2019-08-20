@@ -37,8 +37,10 @@ namespace sss
 			VkCommandBuffer m_commandBuffers[FRAMES_IN_FLIGHT * 2];
 			VkRenderPass m_shadowRenderPass;
 			VkRenderPass m_mainRenderPass;
+			VkRenderPass m_guiRenderPass;
 			VkFramebuffer m_shadowFramebuffers[FRAMES_IN_FLIGHT];
 			VkFramebuffer m_mainFramebuffers[FRAMES_IN_FLIGHT];
+			VkFramebuffer m_guiFramebuffers[FRAMES_IN_FLIGHT];
 			VkImage m_shadowImage[FRAMES_IN_FLIGHT];
 			VkImage m_depthStencilImage[FRAMES_IN_FLIGHT];
 			VkImage m_colorImage[FRAMES_IN_FLIGHT];

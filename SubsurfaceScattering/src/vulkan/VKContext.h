@@ -22,6 +22,7 @@ namespace sss
 			VKContext &operator= (const VKContext &) = delete;
 			VKContext &operator= (const VKContext &&) = delete;
 			~VKContext();
+			VkInstance getInstance() const;
 			VkDevice getDevice() const;
 			VkPhysicalDevice getPhysicalDevice() const;
 			VkPhysicalDeviceFeatures getDeviceFeatures() const;

@@ -304,6 +304,11 @@ sss::vulkan::VKContext::~VKContext()
 	vkDestroyInstance(m_instance, nullptr);
 }
 
+VkInstance sss::vulkan::VKContext::getInstance() const
+{
+	return m_instance;
+}
+
 VkDevice sss::vulkan::VKContext::getDevice() const
 {
 	return m_device;
