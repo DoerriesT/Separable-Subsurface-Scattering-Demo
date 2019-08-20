@@ -5,7 +5,6 @@ struct PushConsts
 	vec2 texelSize;
 	vec2 dir;
 	float sssWidth;
-	float fovy;
 };
 
 layout(set = 0, binding = 0) uniform sampler2D uInputTexture;
