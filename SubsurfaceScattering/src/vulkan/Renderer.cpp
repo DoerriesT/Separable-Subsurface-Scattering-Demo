@@ -95,8 +95,8 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 		eyelashesMaterial.specularTexture = 0;
 		eyelashesMaterial.cavityTexture = 0;
 
-		std::pair<Material, bool> materials[] = { {headMaterial, true}, {jacketMaterial, false}, {browsMaterial, false}, {eyelashesMaterial, false} };
-		const char *meshPaths[] = { "resources/meshes/head.mesh", "resources/meshes/jacket.mesh", "resources/meshes/brows.mesh", "resources/meshes/eyelashes.mesh" };
+		std::pair<Material, bool> materials[] = { {headMaterial, true}, {jacketMaterial, false} };// , { browsMaterial, false }, { eyelashesMaterial, false } };
+		const char *meshPaths[] = { "resources/meshes/head.mesh", "resources/meshes/jacket.mesh" };//, "resources/meshes/brows.mesh", "resources/meshes/eyelashes.mesh" };
 
 		for (size_t i = 0; i < sizeof(meshPaths) / sizeof(meshPaths[0]); ++i)
 		{
@@ -1109,6 +1109,15 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 		}
 	}
 
+	VkQueryPoolCreateInfo queryPoolCreateInfo = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+	queryPoolCreateInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
+	queryPoolCreateInfo.queryCount = FRAMES_IN_FLIGHT * 2;
+
+	if (vkCreateQueryPool(m_context.getDevice(), &queryPoolCreateInfo, nullptr, &m_queryPool) != VK_SUCCESS)
+	{
+		util::fatalExit("Failed to create query pool!", EXIT_FAILURE);
+	}
+
 	VkDescriptorSetLayout lightingDescriptorSetLayouts[] = { m_textureDescriptorSetLayout, m_lightingDescriptorSetLayout };
 
 	m_shadowPipeline = ShadowPipeline::create(m_context.getDevice(), m_shadowRenderPass, 0, 0, nullptr);
@@ -1203,13 +1212,24 @@ sss::vulkan::Renderer::~Renderer()
 
 }
 
-void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::mat4 &shadowMatrix, const glm::vec4 &lightPositionRadius, const glm::vec4 &lightColorInvSqrAttRadius, const glm::vec4 &cameraPosition)
+void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::mat4 &shadowMatrix, const glm::vec4 &lightPositionRadius, const glm::vec4 &lightColorInvSqrAttRadius, const glm::vec4 &cameraPosition, bool subsurfaceScatteringEnabled)
 {
 	uint32_t resourceIndex = m_frameIndex % FRAMES_IN_FLIGHT;
 
 	// wait until gpu finished work on all per frame resources
 	vkWaitForFences(m_context.getDevice(), 1, &m_frameFinishedFence[resourceIndex], VK_TRUE, std::numeric_limits<uint64_t>::max());
 	vkResetFences(m_context.getDevice(), 1, &m_frameFinishedFence[resourceIndex]);
+
+	// retrieve gpu timestamp queries of sss passes
+	if (m_frameIndex >= FRAMES_IN_FLIGHT)
+	{
+		uint64_t data[2];
+		if (vkGetQueryPoolResults(m_context.getDevice(), m_queryPool, resourceIndex, 2, sizeof(data), data, sizeof(data[0]), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT) != VK_SUCCESS)
+		{
+			util::fatalExit("Failed to rerieve gpu timestamp queries!", EXIT_FAILURE);
+		}
+		m_sssTime = static_cast<float>((data[1] - data[0]) * (m_context.getDeviceProperties().limits.timestampPeriod * (1.0 / 1e6)));
+	}
 
 	// update constant buffer content
 	((glm::mat4 *)m_constantBufferPtr[resourceIndex])[0] = viewProjection;
@@ -1412,97 +1432,105 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 			vkCmdEndRenderPass(curCmdBuf);
 		}
 
-		// sss blur 0
-		{
-			// transition diffuse1 image layout to VK_IMAGE_LAYOUT_GENERAL
-			{
-				VkImageMemoryBarrier imageBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-				imageBarrier.srcAccessMask = 0;
-				imageBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-				imageBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-				imageBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-				imageBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				imageBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				imageBarrier.image = m_diffuse1Image[resourceIndex];
-				imageBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+		vkCmdResetQueryPool(curCmdBuf, m_queryPool, resourceIndex, 2);
+		vkCmdWriteTimestamp(curCmdBuf, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_queryPool, resourceIndex);
 
-				vkCmdPipelineBarrier(curCmdBuf, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &imageBarrier);
+		if (subsurfaceScatteringEnabled)
+		{
+			// sss blur 0
+			{
+				// transition diffuse1 image layout to VK_IMAGE_LAYOUT_GENERAL
+				{
+					VkImageMemoryBarrier imageBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+					imageBarrier.srcAccessMask = 0;
+					imageBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+					imageBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+					imageBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+					imageBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+					imageBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+					imageBarrier.image = m_diffuse1Image[resourceIndex];
+					imageBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+					vkCmdPipelineBarrier(curCmdBuf, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &imageBarrier);
+				}
+
+				vkCmdBindPipeline(curCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_sssBlurPipeline0.first);
+
+				vkCmdBindDescriptorSets(curCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_sssBlurPipeline0.second, 0, 1, &m_sssBlurDescriptorSet[resourceIndex * 2], 0, nullptr);
+
+				using namespace glm;
+				struct PushConsts
+				{
+					vec2 texelSize;
+					vec2 dir;
+					float sssWidth;
+				};
+
+				PushConsts pushConsts;
+				pushConsts.texelSize = 1.0f / glm::vec2(m_width, m_height);
+				pushConsts.dir = glm::vec2(1.0f, 0.0f);
+				pushConsts.sssWidth = 0.01f * 1.0f / tanf(glm::radians(40.0f) * 0.5f) * (m_height / static_cast<float>(m_width));
+
+				vkCmdPushConstants(curCmdBuf, m_sssBlurPipeline0.second, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConsts), &pushConsts);
+
+				vkCmdDispatch(curCmdBuf, (m_width + 15) / 16, (m_height + 15) / 16, 1);
 			}
 
-			vkCmdBindPipeline(curCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_sssBlurPipeline0.first);
-
-			vkCmdBindDescriptorSets(curCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_sssBlurPipeline0.second, 0, 1, &m_sssBlurDescriptorSet[resourceIndex * 2], 0, nullptr);
-
-			using namespace glm;
-			struct PushConsts
+			// sss blur 1
 			{
-				vec2 texelSize;
-				vec2 dir;
-				float sssWidth;
-			};
+				// barriers
+				{
+					VkImageMemoryBarrier imageBarriers[2];
 
-			PushConsts pushConsts;
-			pushConsts.texelSize = 1.0f / glm::vec2(m_width, m_height);
-			pushConsts.dir = glm::vec2(1.0f, 0.0f);
-			pushConsts.sssWidth = 0.01f * 1.0f / tanf(glm::radians(40.0f) * 0.5f) * (m_height / static_cast<float>(m_width));
+					// transition diffuse1 image layout to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+					imageBarriers[0] = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+					imageBarriers[0].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+					imageBarriers[0].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+					imageBarriers[0].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+					imageBarriers[0].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+					imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+					imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+					imageBarriers[0].image = m_diffuse1Image[resourceIndex];
+					imageBarriers[0].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-			vkCmdPushConstants(curCmdBuf, m_sssBlurPipeline0.second, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConsts), &pushConsts);
+					// transition diffuse0 image layout to VK_IMAGE_LAYOUT_GENERAL
+					imageBarriers[1] = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+					imageBarriers[1].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+					imageBarriers[1].dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+					imageBarriers[1].oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+					imageBarriers[1].newLayout = VK_IMAGE_LAYOUT_GENERAL;
+					imageBarriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+					imageBarriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+					imageBarriers[1].image = m_diffuse0Image[resourceIndex];
+					imageBarriers[1].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-			vkCmdDispatch(curCmdBuf, (m_width + 15) / 16, (m_height + 15) / 16, 1);
-		}
+					vkCmdPipelineBarrier(curCmdBuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 2, imageBarriers);
+				}
 
-		// sss blur 1
-		{
-			// barriers
-			{
-				VkImageMemoryBarrier imageBarriers[2];
+				vkCmdBindPipeline(curCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_sssBlurPipeline1.first);
 
-				// transition diffuse1 image layout to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-				imageBarriers[0] = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-				imageBarriers[0].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-				imageBarriers[0].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-				imageBarriers[0].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-				imageBarriers[0].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-				imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				imageBarriers[0].image = m_diffuse1Image[resourceIndex];
-				imageBarriers[0].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+				vkCmdBindDescriptorSets(curCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_sssBlurPipeline1.second, 0, 1, &m_sssBlurDescriptorSet[resourceIndex * 2 + 1], 0, nullptr);
 
-				// transition diffuse0 image layout to VK_IMAGE_LAYOUT_GENERAL
-				imageBarriers[1] = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-				imageBarriers[1].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-				imageBarriers[1].dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-				imageBarriers[1].oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-				imageBarriers[1].newLayout = VK_IMAGE_LAYOUT_GENERAL;
-				imageBarriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				imageBarriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				imageBarriers[1].image = m_diffuse0Image[resourceIndex];
-				imageBarriers[1].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+				using namespace glm;
+				struct PushConsts
+				{
+					vec2 texelSize;
+					vec2 dir;
+					float sssWidth;
+				};
 
-				vkCmdPipelineBarrier(curCmdBuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 2, imageBarriers);
+				PushConsts pushConsts;
+				pushConsts.texelSize = 1.0f / glm::vec2(m_width, m_height);
+				pushConsts.dir = glm::vec2(0.0f, 1.0f);
+				pushConsts.sssWidth = 0.01f * 1.0f / tanf(glm::radians(40.0f) * 0.5f) * (m_height / static_cast<float>(m_width));
+
+				vkCmdPushConstants(curCmdBuf, m_sssBlurPipeline1.second, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConsts), &pushConsts);
+
+				vkCmdDispatch(curCmdBuf, (m_width + 15) / 16, (m_height + 15) / 16, 1);
 			}
-
-			vkCmdBindPipeline(curCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_sssBlurPipeline1.first);
-
-			vkCmdBindDescriptorSets(curCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_sssBlurPipeline1.second, 0, 1, &m_sssBlurDescriptorSet[resourceIndex * 2 + 1], 0, nullptr);
-
-			using namespace glm;
-			struct PushConsts
-			{
-				vec2 texelSize;
-				vec2 dir;
-				float sssWidth;
-			};
-
-			PushConsts pushConsts;
-			pushConsts.texelSize = 1.0f / glm::vec2(m_width, m_height);
-			pushConsts.dir = glm::vec2(0.0f, 1.0f);
-			pushConsts.sssWidth = 0.01f * 1.0f / tanf(glm::radians(40.0f) * 0.5f) * (m_height / static_cast<float>(m_width));
-
-			vkCmdPushConstants(curCmdBuf, m_sssBlurPipeline1.second, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConsts), &pushConsts);
-
-			vkCmdDispatch(curCmdBuf, (m_width + 15) / 16, (m_height + 15) / 16, 1);
 		}
+
+		vkCmdWriteTimestamp(curCmdBuf, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_queryPool, resourceIndex + 1);
 
 		// postprocessing
 		{
@@ -1532,7 +1560,7 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 				imageBarriers[1].image = m_diffuse0Image[resourceIndex];
 				imageBarriers[1].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-				vkCmdPipelineBarrier(curCmdBuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 2, imageBarriers);
+				vkCmdPipelineBarrier(curCmdBuf, subsurfaceScatteringEnabled ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT : VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, subsurfaceScatteringEnabled ? 2 : 1, imageBarriers);
 			}
 
 			vkCmdBindPipeline(curCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, m_posprocessingPipeline.first);
@@ -1683,4 +1711,9 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 	}
 
 	++m_frameIndex;
+}
+
+float sss::vulkan::Renderer::getSSSEffectTiming() const
+{
+	return m_sssTime;
 }

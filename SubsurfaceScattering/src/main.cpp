@@ -27,9 +27,14 @@ int main()
 	uint64_t previousTickCount = timer.getElapsedTicks();
 	uint64_t frameCount = 0;
 
-	float lightTheta = glm::radians(60.0f);
+	float lightTheta = 60.0f;
+	const float lightRadius = 5.0f;
+	const float lightLuminousPower = 700.0f;
+	const glm::vec3 lightColor = glm::vec3(255.0f, 206.0f, 166.0f) / 255.0f;
+	const glm::vec3 lightIntensity = lightColor * lightLuminousPower * (1.0f / (4.0f * glm::pi<float>()));
 
-	bool showDemoWindow = true;
+	bool subsurfaceScatteringEnabled = true;
+	bool showGui = true;
 
 	while (!window.shouldClose())
 	{
@@ -43,14 +48,18 @@ int main()
 		ImGui_ImplVulkan_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
-		if (showDemoWindow)
-			ImGui::ShowDemoWindow(&showDemoWindow);
+
+		ImGui::Begin("Subsurface Scattering Demo!");
+		ImGui::Checkbox("Subsurface Scattering", &subsurfaceScatteringEnabled);
+		ImGui::SliderFloat("Light Angle", &lightTheta, 0.0f, 360.0f);
+		ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+		ImGui::Text("Subsurface Scattering Time %.3f ms", renderer.getSSSEffectTiming());
+		ImGui::End();
+
 		ImGui::Render();
 
-		lightTheta += static_cast<float>(userInput.isKeyPressed(InputKey::LEFT)) * static_cast<float>(timer.getTimeDelta());
-		lightTheta -= static_cast<float>(userInput.isKeyPressed(InputKey::RIGHT)) * static_cast<float>(timer.getTimeDelta());
-
-		glm::vec3 lightPos(glm::cos(lightTheta), 0.2f, glm::sin(lightTheta));
+		float lightThetaRadians = glm::radians(lightTheta);
+		glm::vec3 lightPos(glm::cos(lightThetaRadians), 0.2f, glm::sin(lightThetaRadians));
 
 		glm::mat4 vulkanCorrection =
 		{
@@ -63,12 +72,8 @@ int main()
 		const glm::mat4 viewMatrix = camera.getViewMatrix();
 		const glm::mat4 viewProjection = vulkanCorrection * glm::perspective(glm::radians(40.0f), width / float(height), 0.01f, 50.0f) * viewMatrix;
 		const glm::mat4 shadowMatrix = vulkanCorrection * glm::perspective(glm::radians(60.0f), 1.0f, 0.1f, 3.0f) * glm::lookAt(lightPos, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-		const float lightRadius = 5.0f;
-		const float lightLuminousPower = 700.0f;
-		const glm::vec3 lightColor = glm::vec3(255.0f, 206.0f, 166.0f) / 255.0f;
-		const glm::vec3 lightIntensity = lightColor * lightLuminousPower * (1.0f / (4.0f * glm::pi<float>()));
-
-		renderer.render(viewProjection, shadowMatrix, glm::vec4(lightPos, lightRadius), glm::vec4(lightIntensity, 1.0f / (lightRadius * lightRadius)), glm::vec4(camera.getPosition(), 0.0f));
+		
+		renderer.render(viewProjection, shadowMatrix, glm::vec4(lightPos, lightRadius), glm::vec4(lightIntensity, 1.0f / (lightRadius * lightRadius)), glm::vec4(camera.getPosition(), 0.0f), subsurfaceScatteringEnabled);
 
 		double timeDiff = (timer.getElapsedTicks() - previousTickCount) / static_cast<double>(timer.getTickFrequency());
 		if (timeDiff > 1.0)

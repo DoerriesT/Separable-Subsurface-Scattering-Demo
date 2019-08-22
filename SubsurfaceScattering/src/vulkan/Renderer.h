@@ -17,7 +17,13 @@ namespace sss
 		public:
 			explicit Renderer(void *windowHandle, uint32_t width, uint32_t height);
 			~Renderer();
-			void render(const glm::mat4 &viewProjection, const glm::mat4 &shadowMatrix, const glm::vec4 &lightPositionRadius, const glm::vec4 &lightColorInvSqrAttRadius, const glm::vec4 &cameraPosition);
+			void render(const glm::mat4 &viewProjection, 
+				const glm::mat4 &shadowMatrix, 
+				const glm::vec4 &lightPositionRadius, 
+				const glm::vec4 &lightColorInvSqrAttRadius, 
+				const glm::vec4 &cameraPosition, 
+				bool subsurfaceScatteringEnabled);
+			float getSSSEffectTiming() const;
 
 		private:
 			enum 
@@ -26,6 +32,7 @@ namespace sss
 				SHADOW_RESOLUTION = 2048,
 			};
 
+			float m_sssTime;
 			uint32_t m_width;
 			uint32_t m_height;
 			uint64_t m_frameIndex = 0;
@@ -84,6 +91,7 @@ namespace sss
 			VkSampler m_linearSamplerRepeat;
 			VkSampler m_pointSamplerClamp;
 			VkSampler m_pointSamplerRepeat;
+			VkQueryPool m_queryPool;
 			std::shared_ptr<Texture> m_radianceTexture;
 			std::shared_ptr<Texture> m_irradianceTexture;
 			std::shared_ptr<Texture> m_brdfLUT;
