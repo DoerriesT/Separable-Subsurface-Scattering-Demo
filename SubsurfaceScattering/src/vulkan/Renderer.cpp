@@ -22,7 +22,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 	:m_width(width),
 	m_height(height),
 	m_context(windowHandle),
-	m_swapChain(m_context, m_width, m_height),
+	m_swapChain(m_context.getPhysicalDevice(), m_context.getDevice(), m_context.getSurface(), m_width, m_height),
 	m_renderResources(m_context.getPhysicalDevice(), m_context.getDevice(), m_context.getGraphicsCommandPool(), m_width, m_height)
 {
 	const char *texturePaths[] =
@@ -730,4 +730,12 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 float sss::vulkan::Renderer::getSSSEffectTiming() const
 {
 	return m_sssTime;
+}
+
+void sss::vulkan::Renderer::resize(uint32_t width, uint32_t height)
+{
+	m_renderResources.resize(width, height);
+	m_width = width;
+	m_height = height;
+	m_swapChain.recreate(width, height);
 }

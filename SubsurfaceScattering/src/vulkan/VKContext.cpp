@@ -116,8 +116,6 @@ sss::vulkan::VKContext::VKContext(void *windowHandle)
 
 	const char *const deviceExtensions[]{ VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 
-	VKSwapChainSupportDetails swapChainSupportDetails;
-
 	// pick physical device
 	{
 		uint32_t physicalDeviceCount = 0;
@@ -188,30 +186,13 @@ sss::vulkan::VKContext::VKContext(void *windowHandle)
 			bool swapChainAdequate = false;
 			if (extensionsSupported)
 			{
-				VKSwapChainSupportDetails details{};
-
-				vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, m_surface, &details.m_capabilities);
-
 				uint32_t formatCount = 0;
 				vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, m_surface, &formatCount, nullptr);
-
-				if (formatCount != 0)
-				{
-					details.m_formats.resize(static_cast<size_t>(formatCount));
-					vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, m_surface, &formatCount, details.m_formats.data());
-				}
 
 				uint32_t presentModeCount;
 				vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, m_surface, &presentModeCount, nullptr);
 
-				if (presentModeCount != 0)
-				{
-					details.m_presentModes.resize(static_cast<size_t>(presentModeCount));
-					vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, m_surface, &presentModeCount, details.m_presentModes.data());
-				}
-
-				swapChainSupportDetails = details;
-				swapChainAdequate = !swapChainSupportDetails.m_formats.empty() && !swapChainSupportDetails.m_presentModes.empty();
+				swapChainAdequate = formatCount && presentModeCount;
 			}
 
 			VkPhysicalDeviceFeatures supportedFeatures;
@@ -226,7 +207,6 @@ sss::vulkan::VKContext::VKContext(void *windowHandle)
 			{
 				m_physicalDevice = physicalDevice;
 				m_graphicsQueueFamilyIndex = static_cast<uint32_t>(graphicsFamilyIndex);
-				m_swapChainSupportDetails = swapChainSupportDetails;
 				vkGetPhysicalDeviceProperties(physicalDevice, &m_properties);
 				m_features = supportedFeatures;
 				break;
@@ -347,11 +327,6 @@ VkCommandPool sss::vulkan::VKContext::getGraphicsCommandPool() const
 VkSurfaceKHR sss::vulkan::VKContext::getSurface() const
 {
 	return m_surface;
-}
-
-sss::vulkan::VKSwapChainSupportDetails sss::vulkan::VKContext::getSwapChainSupportDetails() const
-{
-	return m_swapChainSupportDetails;
 }
 
 uint32_t sss::vulkan::VKContext::getGraphicsQueueFamilyIndex() const

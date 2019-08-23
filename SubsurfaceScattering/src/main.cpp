@@ -17,15 +17,31 @@ int main()
 	uint32_t height = 900;
 	Window window(width, height, "Subsurface Scattering");
 	UserInput userInput;
-	vulkan::Renderer renderer(window.getWindowHandle(), width, height);
 
 	window.addInputListener(&userInput);
 
-	ArcBallCamera camera(glm::vec3(0.0f, 0.25f, 0.0f), 1.0f);
+	// update width/height with actual window resolution
+	width = window.getWidth();
+	height = window.getHeight();
 
-	util::Timer timer;
-	uint64_t previousTickCount = timer.getElapsedTicks();
-	uint64_t frameCount = 0;
+	// create list of supported window resolutions and a string representation for gui combo box
+	auto supportedResolutions = window.getSupportedResolutions();
+	int currentResolutionIndex = -1;
+	std::vector<std::string> resolutionStrings;
+	for (size_t i = 0; i < supportedResolutions.size(); ++i)
+	{
+		const auto &res = supportedResolutions[i];
+		resolutionStrings.push_back(std::to_string(res.first) + "x" + std::to_string(res.second));
+		if (res.first == width && res.second == height)
+		{
+			currentResolutionIndex = i;
+		}
+	}
+	assert(currentResolutionIndex != -1);
+
+	vulkan::Renderer renderer(window.getWindowHandle(), width, height);
+
+	ArcBallCamera camera(glm::vec3(0.0f, 0.25f, 0.0f), 1.0f);
 
 	float lightTheta = 60.0f;
 	const float lightRadius = 5.0f;
@@ -38,18 +54,31 @@ int main()
 
 	while (!window.shouldClose())
 	{
-		timer.update();
-		float timeDelta = static_cast<float>(timer.getTimeDelta());
-
 		window.pollEvents();
 		userInput.input();
-		camera.update(userInput.getMousePosDelta() * (userInput.isMouseButtonPressed(InputMouse::BUTTON_RIGHT) ? 1.0f : 0.0f), userInput.getScrollOffset().y);
+		const float guiFocusedModifier = static_cast<float>(!ImGui::IsAnyItemHovered());
+		camera.update(guiFocusedModifier * userInput.getMousePosDelta() * (userInput.isMouseButtonPressed(InputMouse::BUTTON_RIGHT) ? 1.0f : 0.0f), guiFocusedModifier * userInput.getScrollOffset().y);
 
 		ImGui_ImplVulkan_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
 
-		ImGui::Begin("Subsurface Scattering Demo!");
+		ImGui::Begin("Subsurface Scattering Demo");
+
+		// resolution combo box
+		{
+			int selectedIndex = currentResolutionIndex;
+			struct FuncHolder { static bool ItemGetter(void* data, int idx, const char** out_str) { *out_str = ((std::string *)data)[idx].c_str(); return true; } };
+			if (ImGui::Combo("Window Resolution", &selectedIndex, &FuncHolder::ItemGetter, resolutionStrings.data(), resolutionStrings.size()) && selectedIndex != currentResolutionIndex)
+			{
+				currentResolutionIndex = selectedIndex;
+				window.resize(supportedResolutions[currentResolutionIndex].first, supportedResolutions[currentResolutionIndex].second);
+				width = window.getWidth();
+				height = window.getHeight();
+				renderer.resize(width, height);
+			}
+		}
+
 		ImGui::Checkbox("Subsurface Scattering", &subsurfaceScatteringEnabled);
 		ImGui::SliderFloat("Light Angle", &lightTheta, 0.0f, 360.0f);
 		ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
@@ -58,10 +87,10 @@ int main()
 
 		ImGui::Render();
 
-		float lightThetaRadians = glm::radians(lightTheta);
-		glm::vec3 lightPos(glm::cos(lightThetaRadians), 0.2f, glm::sin(lightThetaRadians));
+		const float lightThetaRadians = glm::radians(lightTheta);
+		const glm::vec3 lightPos(glm::cos(lightThetaRadians), 0.2f, glm::sin(lightThetaRadians));
 
-		glm::mat4 vulkanCorrection =
+		const glm::mat4 vulkanCorrection =
 		{
 			{ 1.0f, 0.0f, 0.0f, 0.0f },
 			{ 0.0f, -1.0f, 0.0f, 0.0f },
@@ -74,16 +103,6 @@ int main()
 		const glm::mat4 shadowMatrix = vulkanCorrection * glm::perspective(glm::radians(60.0f), 1.0f, 0.1f, 3.0f) * glm::lookAt(lightPos, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 		
 		renderer.render(viewProjection, shadowMatrix, glm::vec4(lightPos, lightRadius), glm::vec4(lightIntensity, 1.0f / (lightRadius * lightRadius)), glm::vec4(camera.getPosition(), 0.0f), subsurfaceScatteringEnabled);
-
-		double timeDiff = (timer.getElapsedTicks() - previousTickCount) / static_cast<double>(timer.getTickFrequency());
-		if (timeDiff > 1.0)
-		{
-			double fps = frameCount / timeDiff;
-			window.setTitle("Subsurface Scattering - " + std::to_string(fps) + " FPS " + std::to_string(1.0 / fps * 1000.0) + " ms");
-			previousTickCount = timer.getElapsedTicks();
-			frameCount = 0;
-		}
-		++frameCount;
 	}
 
 	return EXIT_SUCCESS;

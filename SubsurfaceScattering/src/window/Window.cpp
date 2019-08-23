@@ -11,7 +11,7 @@ void sss::mouseButtonCallback(GLFWwindow *window, int button, int action, int mo
 void sss::keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
 void sss::charCallback(GLFWwindow *window, unsigned int codepoint);
 
-sss::Window::Window(unsigned int width, unsigned int height, const char *title)
+sss::Window::Window(uint32_t width, uint32_t height, const char *title)
 	:m_windowHandle(),
 	m_width(width),
 	m_height(height),
@@ -56,14 +56,56 @@ void *sss::Window::getWindowHandle() const
 	return static_cast<void *>(m_windowHandle);
 }
 
-unsigned int sss::Window::getWidth() const
+uint32_t sss::Window::getWidth() const
 {
 	return m_width;
 }
 
-unsigned int sss::Window::getHeight() const
+uint32_t sss::Window::getHeight() const
 {
 	return m_height;
+}
+
+void sss::Window::resize(uint32_t width, uint32_t height)
+{
+	glfwSetWindowSize(m_windowHandle, width, height);
+	int w, h;
+	glfwGetWindowSize(m_windowHandle, &w, &h);
+	m_width = w;
+	m_height = h;
+}
+
+std::vector<std::pair<uint32_t, uint32_t>> sss::Window::getSupportedResolutions()
+{
+	std::vector<std::pair<uint32_t, uint32_t>> supportedResolutions;
+
+	int vidModeCount;
+	const GLFWvidmode *vidModes = glfwGetVideoModes(glfwGetPrimaryMonitor(), &vidModeCount);
+	bool addToList = true;
+
+	for (int i = 0; i < vidModeCount; ++i)
+	{
+		int width = vidModes[i].width;
+		int height = vidModes[i].height;
+
+		// make sure we do not already have this resolution in our list
+		addToList = true;
+		for (std::pair<uint32_t, uint32_t> &resolution : supportedResolutions)
+		{
+			if (resolution.first == width && resolution.second == height)
+			{
+				addToList = false;
+			}
+		}
+
+		if (addToList)
+		{
+			supportedResolutions.push_back(std::make_pair(width, height));
+		}
+	}
+
+
+	return supportedResolutions;
 }
 
 bool sss::Window::shouldClose() const

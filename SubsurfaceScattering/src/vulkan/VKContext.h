@@ -6,13 +6,6 @@ namespace sss
 {
 	namespace vulkan
 	{
-		struct VKSwapChainSupportDetails
-		{
-			VkSurfaceCapabilitiesKHR m_capabilities;
-			std::vector<VkSurfaceFormatKHR> m_formats;
-			std::vector<VkPresentModeKHR> m_presentModes;
-		};
-
 		class VKContext
 		{
 		public:
@@ -31,7 +24,6 @@ namespace sss
 			VkQueue getGraphicsQueue() const;
 			VkCommandPool getGraphicsCommandPool() const;
 			VkSurfaceKHR getSurface() const;
-			VKSwapChainSupportDetails getSwapChainSupportDetails() const;
 			uint32_t getGraphicsQueueFamilyIndex() const;
 
 		private:
@@ -45,7 +37,6 @@ namespace sss
 			uint32_t m_graphicsQueueFamilyIndex;
 			VkCommandPool m_graphicsCommandPool;
 			VkSurfaceKHR m_surface;
-			VKSwapChainSupportDetails m_swapChainSupportDetails;
 			VkDebugUtilsMessengerEXT m_debugUtilsMessenger;
 		};
 	}

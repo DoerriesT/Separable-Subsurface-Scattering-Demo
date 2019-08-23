@@ -3,8 +3,10 @@
 #include "utility/Utility.h"
 #include <glm/common.hpp>
 
-sss::vulkan::SwapChain::SwapChain(const VKContext &context, uint32_t width, uint32_t height)
-	:m_context(context)
+sss::vulkan::SwapChain::SwapChain(VkPhysicalDevice physicalDevice, VkDevice device, VkSurfaceKHR surface, uint32_t width, uint32_t height)
+	:m_physicalDevice(physicalDevice),
+	m_device(device),
+	m_surface(surface)
 {
 	create(width, height);
 }
@@ -16,7 +18,7 @@ sss::vulkan::SwapChain::~SwapChain()
 
 void sss::vulkan::SwapChain::recreate(uint32_t width, uint32_t height)
 {
-	vkDeviceWaitIdle(m_context.getDevice());
+	vkDeviceWaitIdle(m_device);
 	destroy();
 	create(width, height);
 }
@@ -53,12 +55,19 @@ size_t sss::vulkan::SwapChain::getImageCount() const
 
 void sss::vulkan::SwapChain::create(uint32_t width, uint32_t height)
 {
-	const auto swapchainSupportDetails = m_context.getSwapChainSupportDetails();
-
 	// find surface format
 	VkSurfaceFormatKHR surfaceFormat;
 	{
-		auto &formats = swapchainSupportDetails.m_formats;
+		std::vector<VkSurfaceFormatKHR> formats;
+		uint32_t formatCount = 0;
+		vkGetPhysicalDeviceSurfaceFormatsKHR(m_physicalDevice, m_surface, &formatCount, nullptr);
+
+		if (formatCount != 0)
+		{
+			formats.resize(formatCount);
+			vkGetPhysicalDeviceSurfaceFormatsKHR(m_physicalDevice, m_surface, &formatCount, formats.data());
+		}
+
 		if (formats.size() == 1 && formats[0].format == VK_FORMAT_UNDEFINED)
 		{
 			surfaceFormat = { VK_FORMAT_B8G8R8A8_UNORM , VK_COLOR_SPACE_SRGB_NONLINEAR_KHR };
@@ -85,7 +94,15 @@ void sss::vulkan::SwapChain::create(uint32_t width, uint32_t height)
 	// find present mode
 	VkPresentModeKHR presentMode;
 	{
-		auto &presentModes = swapchainSupportDetails.m_presentModes;
+		std::vector<VkPresentModeKHR> presentModes;
+		uint32_t presentModeCount;
+		vkGetPhysicalDeviceSurfacePresentModesKHR(m_physicalDevice, m_surface, &presentModeCount, nullptr);
+
+		if (presentModeCount != 0)
+		{
+			presentModes.resize(presentModeCount);
+			vkGetPhysicalDeviceSurfacePresentModesKHR(m_physicalDevice, m_surface, &presentModeCount, presentModes.data());
+		}
 
 		VkPresentModeKHR bestMode = VK_PRESENT_MODE_FIFO_KHR;
 
@@ -109,7 +126,8 @@ void sss::vulkan::SwapChain::create(uint32_t width, uint32_t height)
 		}
 	}
 
-	auto &caps = swapchainSupportDetails.m_capabilities;
+	VkSurfaceCapabilitiesKHR caps;
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_physicalDevice, m_surface, &caps);
 
 	// find proper extent
 	VkExtent2D extent;
@@ -131,7 +149,7 @@ void sss::vulkan::SwapChain::create(uint32_t width, uint32_t height)
 	}
 
 	VkSwapchainCreateInfoKHR createInfo{ VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
-	createInfo.surface = m_context.getSurface();
+	createInfo.surface = m_surface;
 	createInfo.minImageCount = imageCount;
 	createInfo.imageFormat = surfaceFormat.format;
 	createInfo.imageColorSpace = surfaceFormat.colorSpace;
@@ -144,14 +162,14 @@ void sss::vulkan::SwapChain::create(uint32_t width, uint32_t height)
 	createInfo.presentMode = presentMode;
 	createInfo.clipped = VK_TRUE;
 
-	if (vkCreateSwapchainKHR(m_context.getDevice(), &createInfo, nullptr, &m_swapChain) != VK_SUCCESS)
+	if (vkCreateSwapchainKHR(m_device, &createInfo, nullptr, &m_swapChain) != VK_SUCCESS)
 	{
 		util::fatalExit("Failed to create swap chain!", EXIT_FAILURE);
 	}
 
-	vkGetSwapchainImagesKHR(m_context.getDevice(), m_swapChain, &imageCount, nullptr);
+	vkGetSwapchainImagesKHR(m_device, m_swapChain, &imageCount, nullptr);
 	m_images.resize(static_cast<size_t>(imageCount));
-	vkGetSwapchainImagesKHR(m_context.getDevice(), m_swapChain, &imageCount, m_images.data());
+	vkGetSwapchainImagesKHR(m_device, m_swapChain, &imageCount, m_images.data());
 
 	m_imageFormat = surfaceFormat.format;
 	m_extent = extent;
@@ -171,7 +189,7 @@ void sss::vulkan::SwapChain::create(uint32_t width, uint32_t height)
 		viewInfo.subresourceRange.baseArrayLayer = 0;
 		viewInfo.subresourceRange.layerCount = 1;
 
-		if (vkCreateImageView(m_context.getDevice(), &viewInfo, nullptr, &m_imageViews[i]) != VK_SUCCESS)
+		if (vkCreateImageView(m_device, &viewInfo, nullptr, &m_imageViews[i]) != VK_SUCCESS)
 		{
 			util::fatalExit("Failed to create swapchain image view!", EXIT_FAILURE);
 		}
@@ -182,8 +200,8 @@ void sss::vulkan::SwapChain::destroy()
 {
 	for (auto imageView : m_imageViews)
 	{
-		vkDestroyImageView(m_context.getDevice(), imageView, nullptr);
+		vkDestroyImageView(m_device, imageView, nullptr);
 	}
 
-	vkDestroySwapchainKHR(m_context.getDevice(), m_swapChain, nullptr);
+	vkDestroySwapchainKHR(m_device, m_swapChain, nullptr);
 }

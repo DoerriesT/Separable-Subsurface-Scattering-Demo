@@ -25,6 +25,7 @@ namespace sss
 				const glm::vec4 &cameraPosition, 
 				bool subsurfaceScatteringEnabled);
 			float getSSSEffectTiming() const;
+			void resize(uint32_t width, uint32_t height);
 
 		private:
 			float m_sssTime;

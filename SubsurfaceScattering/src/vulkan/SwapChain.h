@@ -11,7 +11,7 @@ namespace sss
 		class SwapChain
 		{
 		public:
-			explicit SwapChain(const VKContext &context, uint32_t width, uint32_t height);
+			explicit SwapChain(VkPhysicalDevice physicalDevice, VkDevice device, VkSurfaceKHR surface, uint32_t width, uint32_t height);
 			SwapChain(SwapChain &) = delete;
 			SwapChain(SwapChain &&) = delete;
 			SwapChain &operator= (const SwapChain &) = delete;
@@ -26,9 +26,9 @@ namespace sss
 			size_t getImageCount() const;
 
 		private:
-			enum {MAX_SWAPCHAIN_IMAGES = 3};
-
-			const VKContext &m_context;
+			VkPhysicalDevice m_physicalDevice;
+			VkDevice m_device;
+			VkSurfaceKHR m_surface;
 			VkSwapchainKHR m_swapChain;
 			VkFormat m_imageFormat;
 			VkExtent2D m_extent;

@@ -15,12 +15,14 @@ namespace sss
 		friend void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
 		friend void charCallback(GLFWwindow *window, unsigned int codepoint);
 	public:
-		explicit Window(unsigned int width, unsigned int height, const char *title);
+		explicit Window(uint32_t width, uint32_t height, const char *title);
 		~Window();
 		void pollEvents() const;
 		void *getWindowHandle() const;
-		unsigned int getWidth() const;
-		unsigned int getHeight() const;
+		uint32_t getWidth() const;
+		uint32_t getHeight() const;
+		void resize(uint32_t width, uint32_t height);
+		std::vector<std::pair<uint32_t, uint32_t>> getSupportedResolutions();
 		bool shouldClose() const;
 		void grabMouse(bool grabMouse);
 		void setTitle(const std::string &title);
@@ -29,8 +31,8 @@ namespace sss
 
 	private:
 		GLFWwindow *m_windowHandle;
-		unsigned int m_width;
-		unsigned int m_height;
+		uint32_t m_width;
+		uint32_t m_height;
 		std::string m_title;
 		std::vector<IInputListener*> m_inputListeners;
 	};
