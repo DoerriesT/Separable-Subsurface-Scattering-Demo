@@ -152,6 +152,8 @@
     <ClCompile Include="src\utility\ContainerUtility.cpp" />
     <ClCompile Include="src\utility\Timer.cpp" />
     <ClCompile Include="src\utility\Utility.cpp" />
+    <ClCompile Include="src\vulkan\Buffer.cpp" />
+    <ClCompile Include="src\vulkan\Image.cpp" />
     <ClCompile Include="src\vulkan\Mesh.cpp" />
     <ClCompile Include="src\vulkan\pipelines\SSSBlurPipeline.cpp" />
     <ClCompile Include="src\vulkan\pipelines\PostprocessingPipeline.cpp" />
@@ -159,6 +161,7 @@
     <ClCompile Include="src\vulkan\pipelines\ShaderModule.cpp" />
     <ClCompile Include="src\vulkan\pipelines\ShadowPipeline.cpp" />
     <ClCompile Include="src\vulkan\pipelines\SkyboxPipeline.cpp" />
+    <ClCompile Include="src\vulkan\RenderResources.cpp" />
     <ClCompile Include="src\vulkan\SwapChain.cpp" />
     <ClCompile Include="src\vulkan\Texture.cpp" />
     <ClCompile Include="src\vulkan\VKContext.cpp" />
@@ -183,6 +186,8 @@
     <ClInclude Include="src\utility\ContainerUtility.h" />
     <ClInclude Include="src\utility\Timer.h" />
     <ClInclude Include="src\utility\Utility.h" />
+    <ClInclude Include="src\vulkan\Buffer.h" />
+    <ClInclude Include="src\vulkan\Image.h" />
     <ClInclude Include="src\vulkan\Material.h" />
     <ClInclude Include="src\vulkan\Mesh.h" />
     <ClInclude Include="src\vulkan\pipelines\SSSBlurPipeline.h" />
@@ -191,6 +196,7 @@
     <ClInclude Include="src\vulkan\pipelines\ShaderModule.h" />
     <ClInclude Include="src\vulkan\pipelines\ShadowPipeline.h" />
     <ClInclude Include="src\vulkan\pipelines\SkyboxPipeline.h" />
+    <ClInclude Include="src\vulkan\RenderResources.h" />
     <ClInclude Include="src\vulkan\SwapChain.h" />
     <ClInclude Include="src\vulkan\Renderer.h" />
     <ClInclude Include="src\vulkan\Texture.h" />

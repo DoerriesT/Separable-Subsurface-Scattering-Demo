@@ -102,6 +102,15 @@
     <ClCompile Include="src\imgui\imgui_widgets.cpp">
       <Filter>src\imgui</Filter>
     </ClCompile>
+    <ClCompile Include="src\vulkan\RenderResources.cpp">
+      <Filter>src\vulkan</Filter>
+    </ClCompile>
+    <ClCompile Include="src\vulkan\Buffer.cpp">
+      <Filter>src\vulkan</Filter>
+    </ClCompile>
+    <ClCompile Include="src\vulkan\Image.cpp">
+      <Filter>src\vulkan</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\vulkan\volk.h">
@@ -193,6 +202,15 @@
     </ClInclude>
     <ClInclude Include="src\imgui\imstb_truetype.h">
       <Filter>src\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vulkan\RenderResources.h">
+      <Filter>src\vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vulkan\Image.h">
+      <Filter>src\vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vulkan\Buffer.h">
+      <Filter>src\vulkan</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
