@@ -43,27 +43,40 @@ int main()
 
 	ArcBallCamera camera(glm::vec3(0.0f, 0.25f, 0.0f), 1.0f);
 
-	float lightTheta = 60.0f;
 	const float lightRadius = 5.0f;
 	const float lightLuminousPower = 700.0f;
 	const glm::vec3 lightColor = glm::vec3(255.0f, 206.0f, 166.0f) / 255.0f;
 	const glm::vec3 lightIntensity = lightColor * lightLuminousPower * (1.0f / (4.0f * glm::pi<float>()));
 
-	bool taaEnabled = true;
 	bool subsurfaceScatteringEnabled = true;
 	float sssWidth = 10.0f;
+	bool taaEnabled = true;
+	float lightTheta = 60.0f;
+
+	glm::vec2 mouseHistory(0.0f);
+	float scrollHistory = 0.0f;
 
 	while (!window.shouldClose())
 	{
 		window.pollEvents();
 		userInput.input();
-		const float guiFocusedModifier = static_cast<float>(!ImGui::IsAnyItemHovered());
-		camera.update(guiFocusedModifier * userInput.getMousePosDelta() * (userInput.isMouseButtonPressed(InputMouse::BUTTON_RIGHT) ? 1.0f : 0.0f), guiFocusedModifier * userInput.getScrollOffset().y);
 
 		ImGui_ImplVulkan_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
 
+		// disable mouse and scrolling as camera input if gui is hovered
+		const glm::vec2 mouseDelta = userInput.getMousePosDelta() * ((userInput.isMouseButtonPressed(InputMouse::BUTTON_RIGHT) && !ImGui::IsAnyItemHovered()) ? 1.0f : 0.0f);
+		const float scrollDelta = userInput.getScrollOffset().y * (!ImGui::IsAnyItemHovered() ? 1.0f : 0.0f);
+
+		// smooth mouse input
+		mouseHistory = glm::mix(mouseHistory, mouseDelta, ImGui::GetIO().DeltaTime / (ImGui::GetIO().DeltaTime + 0.05f));
+		scrollHistory = glm::mix(scrollHistory, scrollDelta, ImGui::GetIO().DeltaTime / (ImGui::GetIO().DeltaTime + 0.05f));
+
+		// update camera
+		camera.update(mouseHistory, scrollHistory);
+
+		// gui window
 		ImGui::Begin("Subsurface Scattering Demo");
 
 		// resolution combo box
@@ -90,9 +103,11 @@ int main()
 
 		ImGui::Render();
 
+		// calculate light position
 		const float lightThetaRadians = glm::radians(lightTheta);
 		const glm::vec3 lightPos(glm::cos(lightThetaRadians), 0.2f, glm::sin(lightThetaRadians));
 
+		// calculate view, projection and shadow matrix
 		const glm::mat4 vulkanCorrection =
 		{
 			{ 1.0f, 0.0f, 0.0f, 0.0f },
