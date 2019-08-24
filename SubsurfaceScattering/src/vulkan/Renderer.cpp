@@ -667,12 +667,12 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection,
 	{
 		VkResult result = vkAcquireNextImageKHR(m_context.getDevice(), m_swapChain, std::numeric_limits<uint64_t>::max(), rr.m_swapChainImageAvailableSemaphores[resourceIndex], VK_NULL_HANDLE, &swapChainImageIndex);
 
-		if (result == VK_ERROR_OUT_OF_DATE_KHR)
+		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
 		{
 			m_swapChain.recreate(m_width, m_height);
 			return;
 		}
-		else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+		else if (result != VK_SUCCESS)
 		{
 			util::fatalExit("Failed to acquire swap chain image!", EXIT_FAILURE);
 		}
@@ -791,9 +791,16 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection,
 		presentInfo.pSwapchains = &swapChain;
 		presentInfo.pImageIndices = &swapChainImageIndex;
 
-		if (vkQueuePresentKHR(m_context.getGraphicsQueue(), &presentInfo) != VK_SUCCESS)
+		VkResult result = vkQueuePresentKHR(m_context.getGraphicsQueue(), &presentInfo);
+
+		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
 		{
-			util::fatalExit("Failed to present!", EXIT_FAILURE);
+			m_swapChain.recreate(m_width, m_height);
+			return;
+		}
+		else if (result != VK_SUCCESS)
+		{
+			util::fatalExit("Failed to present swap chain image!", EXIT_FAILURE);
 		}
 	}
 

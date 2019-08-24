@@ -66,6 +66,11 @@ uint32_t sss::Window::getHeight() const
 	return m_height;
 }
 
+bool sss::Window::isIconified() const
+{
+	return glfwGetWindowAttrib(m_windowHandle, GLFW_ICONIFIED);
+}
+
 void sss::Window::resize(uint32_t width, uint32_t height)
 {
 	glfwSetWindowSize(m_windowHandle, width, height);

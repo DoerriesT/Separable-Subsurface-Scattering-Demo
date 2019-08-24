@@ -21,6 +21,7 @@ namespace sss
 		void *getWindowHandle() const;
 		uint32_t getWidth() const;
 		uint32_t getHeight() const;
+		bool isIconified() const;
 		void resize(uint32_t width, uint32_t height);
 		std::vector<std::pair<uint32_t, uint32_t>> getSupportedResolutions();
 		bool shouldClose() const;
