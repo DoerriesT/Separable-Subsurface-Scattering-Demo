@@ -905,6 +905,7 @@ void sss::vulkan::RenderResources::createResizableResources(uint32_t width, uint
 	}
 
 	// gui framebuffer
+	m_guiFramebuffers.resize(m_swapChain->getImageCount());
 	for (size_t i = 0; i < m_swapChain->getImageCount(); ++i)
 	{
 		VkImageView framebufferAttachment = m_swapChain->getImageView(i);

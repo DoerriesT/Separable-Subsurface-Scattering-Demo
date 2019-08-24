@@ -1,5 +1,6 @@
 #pragma once
 #include <memory>
+#include <vector>
 #include "volk.h"
 #include "Image.h"
 #include "Buffer.h"
@@ -33,7 +34,7 @@ namespace sss
 			VkRenderPass m_guiRenderPass;
 			VkFramebuffer m_shadowFramebuffers[FRAMES_IN_FLIGHT];
 			VkFramebuffer m_mainFramebuffers[FRAMES_IN_FLIGHT];
-			VkFramebuffer m_guiFramebuffers[FRAMES_IN_FLIGHT];
+			std::vector<VkFramebuffer> m_guiFramebuffers;
 			std::unique_ptr<Image> m_shadowImage[FRAMES_IN_FLIGHT];
 			std::unique_ptr<Image> m_depthStencilImage[FRAMES_IN_FLIGHT];
 			std::unique_ptr<Image> m_colorImage[FRAMES_IN_FLIGHT];
