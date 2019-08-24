@@ -183,27 +183,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 	}
 
 	// transition tonemapped output image to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL to be used as taa input
-	{
-		auto cmdBuf = vkutil::beginSingleTimeCommands(m_context.getDevice(), m_context.getGraphicsCommandPool());
-		{
-			VkImageMemoryBarrier imageBarriers[FRAMES_IN_FLIGHT];
-			for (size_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
-			{
-				imageBarriers[i] = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-				imageBarriers[i].srcAccessMask = 0;
-				imageBarriers[i].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-				imageBarriers[i].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-				imageBarriers[i].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-				imageBarriers[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				imageBarriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				imageBarriers[i].image = m_renderResources.m_tonemappedImage[i]->getImage();
-				imageBarriers[i].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-			}
-			
-			vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, FRAMES_IN_FLIGHT, imageBarriers);
-		}
-		vkutil::endSingleTimeCommands(m_context.getDevice(), m_context.getGraphicsQueue(), m_context.getGraphicsCommandPool(), cmdBuf);
-	}
+	transitionHistoryImages();
 
 	// imgui
 	{
@@ -823,7 +803,11 @@ void sss::vulkan::Renderer::resize(uint32_t width, uint32_t height)
 	m_renderResources.resize(width, height);
 	m_width = width;
 	m_height = height;
+	transitionHistoryImages();
+}
 
+void sss::vulkan::Renderer::transitionHistoryImages()
+{
 	// transition tonemapped output image to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL to be used as taa input
 	{
 		auto cmdBuf = vkutil::beginSingleTimeCommands(m_context.getDevice(), m_context.getGraphicsCommandPool());

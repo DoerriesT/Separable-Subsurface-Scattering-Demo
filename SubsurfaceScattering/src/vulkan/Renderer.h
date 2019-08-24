@@ -47,6 +47,8 @@ namespace sss
 			glm::mat4 m_previousViewProjection;
 			float m_haltonX[8];
 			float m_haltonY[8];
+
+			void transitionHistoryImages();
 		};
 	}
 }
