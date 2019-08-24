@@ -769,7 +769,7 @@ void sss::vulkan::RenderResources::createResizableResources(uint32_t width, uint
 
 			// shadow map
 			auto &shadowImageInfo = imageInfos[imageInfoCount++];
-			shadowImageInfo.sampler = nullptr;
+			shadowImageInfo.sampler = VK_NULL_HANDLE;
 			shadowImageInfo.imageView = m_shadowImage[i]->getView();
 			shadowImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -787,7 +787,7 @@ void sss::vulkan::RenderResources::createResizableResources(uint32_t width, uint
 		{
 			// input
 			auto &inputImageInfo = imageInfos[imageInfoCount++];
-			inputImageInfo.sampler = nullptr;
+			inputImageInfo.sampler = VK_NULL_HANDLE;
 			inputImageInfo.imageView = (j == 0) ? m_diffuse0Image[i]->getView() : m_diffuse1Image[i]->getView();
 			inputImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -801,7 +801,7 @@ void sss::vulkan::RenderResources::createResizableResources(uint32_t width, uint
 
 			// depth
 			auto &depthImageInfo = imageInfos[imageInfoCount++];
-			depthImageInfo.sampler = nullptr;
+			depthImageInfo.sampler = VK_NULL_HANDLE;
 			depthImageInfo.imageView = m_depthImageView[i];
 			depthImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -815,7 +815,7 @@ void sss::vulkan::RenderResources::createResizableResources(uint32_t width, uint
 
 			// result
 			auto &resultImageInfo = imageInfos[imageInfoCount++];
-			resultImageInfo.sampler = nullptr;
+			resultImageInfo.sampler = VK_NULL_HANDLE;
 			resultImageInfo.imageView = (j == 0) ? m_diffuse1Image[i]->getView() : m_diffuse0Image[i]->getView();
 			resultImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
@@ -832,7 +832,7 @@ void sss::vulkan::RenderResources::createResizableResources(uint32_t width, uint
 		{
 			// result
 			auto &resultImageInfo = imageInfos[imageInfoCount++];
-			resultImageInfo.sampler = nullptr;
+			resultImageInfo.sampler = VK_NULL_HANDLE;
 			resultImageInfo.imageView = m_tonemappedImage[i]->getView();
 			resultImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
@@ -846,7 +846,7 @@ void sss::vulkan::RenderResources::createResizableResources(uint32_t width, uint
 
 			// color
 			auto &colorImageInfo = imageInfos[imageInfoCount++];
-			colorImageInfo.sampler = nullptr;
+			colorImageInfo.sampler = VK_NULL_HANDLE;
 			colorImageInfo.imageView = m_colorImage[i]->getView();
 			colorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -860,7 +860,7 @@ void sss::vulkan::RenderResources::createResizableResources(uint32_t width, uint
 
 			// diffuse
 			auto &diffuseImageInfo = imageInfos[imageInfoCount++];
-			diffuseImageInfo.sampler = nullptr;
+			diffuseImageInfo.sampler = VK_NULL_HANDLE;
 			diffuseImageInfo.imageView = m_diffuse0Image[i]->getView();
 			diffuseImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -874,7 +874,7 @@ void sss::vulkan::RenderResources::createResizableResources(uint32_t width, uint
 
 			// depth
 			auto &depthImageInfo = imageInfos[imageInfoCount++];
-			depthImageInfo.sampler = nullptr;
+			depthImageInfo.sampler = VK_NULL_HANDLE;
 			depthImageInfo.imageView = m_depthImageView[i];
 			depthImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -888,7 +888,7 @@ void sss::vulkan::RenderResources::createResizableResources(uint32_t width, uint
 
 			// history
 			auto &historyImageInfo = imageInfos[imageInfoCount++];
-			historyImageInfo.sampler = nullptr;
+			historyImageInfo.sampler = VK_NULL_HANDLE;
 			historyImageInfo.imageView = m_tonemappedImage[(i + FRAMES_IN_FLIGHT - 1) % FRAMES_IN_FLIGHT]->getView();
 			historyImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 

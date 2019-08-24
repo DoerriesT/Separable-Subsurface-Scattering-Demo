@@ -125,22 +125,22 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			}
 
 			auto &brdfLutImageInfo = textureImageInfos[textureCount];
-			brdfLutImageInfo.sampler = nullptr;
+			brdfLutImageInfo.sampler = VK_NULL_HANDLE;
 			brdfLutImageInfo.imageView = m_brdfLUT->getView();
 			brdfLutImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
 			auto &radianceTexImageInfo = textureImageInfos[textureCount + 1];
-			radianceTexImageInfo.sampler = nullptr;
+			radianceTexImageInfo.sampler = VK_NULL_HANDLE;
 			radianceTexImageInfo.imageView = m_radianceTexture->getView();
 			radianceTexImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
 			auto &irradianceTexImageInfo = textureImageInfos[textureCount + 2];
-			irradianceTexImageInfo.sampler = nullptr;
+			irradianceTexImageInfo.sampler = VK_NULL_HANDLE;
 			irradianceTexImageInfo.imageView = m_irradianceTexture->getView();
 			irradianceTexImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
 			auto &skyboxTexImageInfo = textureImageInfos[textureCount + 3];
-			skyboxTexImageInfo.sampler = nullptr;
+			skyboxTexImageInfo.sampler = VK_NULL_HANDLE;
 			skyboxTexImageInfo.imageView = m_skyboxTexture->getView();
 			skyboxTexImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		}
