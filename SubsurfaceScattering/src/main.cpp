@@ -15,7 +15,7 @@ int main()
 {
 	uint32_t width = 1600;
 	uint32_t height = 900;
-	Window window(width, height, "Subsurface Scattering");
+	Window window(width, height, "Subsurface Scattering Demo");
 	UserInput userInput;
 
 	window.addInputListener(&userInput);
@@ -34,7 +34,7 @@ int main()
 		resolutionStrings.push_back(std::to_string(res.first) + "x" + std::to_string(res.second));
 		if (res.first == width && res.second == height)
 		{
-			currentResolutionIndex = i;
+			currentResolutionIndex = static_cast<int>(i);
 		}
 	}
 	assert(currentResolutionIndex != -1);
@@ -70,7 +70,7 @@ int main()
 		{
 			int selectedIndex = currentResolutionIndex;
 			struct FuncHolder { static bool ItemGetter(void* data, int idx, const char** out_str) { *out_str = ((std::string *)data)[idx].c_str(); return true; } };
-			if (ImGui::Combo("Window Resolution", &selectedIndex, &FuncHolder::ItemGetter, resolutionStrings.data(), resolutionStrings.size()) && selectedIndex != currentResolutionIndex)
+			if (ImGui::Combo("Window Resolution", &selectedIndex, &FuncHolder::ItemGetter, resolutionStrings.data(), static_cast<int>(resolutionStrings.size())) && selectedIndex != currentResolutionIndex)
 			{
 				currentResolutionIndex = selectedIndex;
 				window.resize(supportedResolutions[currentResolutionIndex].first, supportedResolutions[currentResolutionIndex].second);

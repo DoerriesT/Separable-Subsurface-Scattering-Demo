@@ -209,8 +209,8 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 		init_info.PipelineCache = VK_NULL_HANDLE;
 		init_info.DescriptorPool = m_renderResources.m_descriptorPool;
 		init_info.Allocator = nullptr;
-		init_info.MinImageCount = m_swapChain.getImageCount();
-		init_info.ImageCount = m_swapChain.getImageCount();
+		init_info.MinImageCount = static_cast<uint32_t>(m_swapChain.getImageCount());
+		init_info.ImageCount = static_cast<uint32_t>(m_swapChain.getImageCount());
 		init_info.CheckVkResultFn = check_vk_result;
 		ImGui_ImplVulkan_Init(&init_info, m_renderResources.m_guiRenderPass);
 
