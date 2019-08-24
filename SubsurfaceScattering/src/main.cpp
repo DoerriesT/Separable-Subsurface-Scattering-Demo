@@ -49,8 +49,9 @@ int main()
 	const glm::vec3 lightColor = glm::vec3(255.0f, 206.0f, 166.0f) / 255.0f;
 	const glm::vec3 lightIntensity = lightColor * lightLuminousPower * (1.0f / (4.0f * glm::pi<float>()));
 
+	bool taaEnabled = true;
 	bool subsurfaceScatteringEnabled = true;
-	bool showGui = true;
+	float sssWidth = 10.0f;
 
 	while (!window.shouldClose())
 	{
@@ -80,6 +81,8 @@ int main()
 		}
 
 		ImGui::Checkbox("Subsurface Scattering", &subsurfaceScatteringEnabled);
+		ImGui::SliderFloat("Scattering Radius (mm)", &sssWidth, 1.0f, 40.0f);
+		ImGui::Checkbox("Temporal AA", &taaEnabled);
 		ImGui::SliderFloat("Light Angle", &lightTheta, 0.0f, 360.0f);
 		ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 		ImGui::Text("Subsurface Scattering Time %.3f ms", renderer.getSSSEffectTiming());
@@ -102,7 +105,14 @@ int main()
 		const glm::mat4 viewProjection = vulkanCorrection * glm::perspective(glm::radians(40.0f), width / float(height), 0.01f, 50.0f) * viewMatrix;
 		const glm::mat4 shadowMatrix = vulkanCorrection * glm::perspective(glm::radians(60.0f), 1.0f, 0.1f, 3.0f) * glm::lookAt(lightPos, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 		
-		renderer.render(viewProjection, shadowMatrix, glm::vec4(lightPos, lightRadius), glm::vec4(lightIntensity, 1.0f / (lightRadius * lightRadius)), glm::vec4(camera.getPosition(), 0.0f), subsurfaceScatteringEnabled);
+		renderer.render(viewProjection, 
+			shadowMatrix, 
+			glm::vec4(lightPos, lightRadius), 
+			glm::vec4(lightIntensity, 1.0f / (lightRadius * lightRadius)), 
+			glm::vec4(camera.getPosition(), 0.0f), 
+			subsurfaceScatteringEnabled,
+			sssWidth * 0.001f,
+			taaEnabled);
 	}
 
 	return EXIT_SUCCESS;

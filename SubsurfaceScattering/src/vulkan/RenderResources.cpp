@@ -6,11 +6,14 @@
 #include "pipelines/SSSBlurPipeline.h"
 #include "pipelines/PostprocessingPipeline.h"
 #include "utility/Utility.h"
+#include "SwapChain.h"
+#include "VKUtility.h"
 
-sss::vulkan::RenderResources::RenderResources(VkPhysicalDevice physicalDevice, VkDevice device, VkCommandPool cmdPool, uint32_t width, uint32_t height)
+sss::vulkan::RenderResources::RenderResources(VkPhysicalDevice physicalDevice, VkDevice device, VkCommandPool cmdPool, uint32_t width, uint32_t height, SwapChain *swapChain)
 	:m_physicalDevice(physicalDevice),
 	m_device(device),
-	m_commandPool(cmdPool)
+	m_commandPool(cmdPool),
+	m_swapChain(swapChain)
 {
 	// create images and views and buffers
 	{
@@ -208,14 +211,14 @@ sss::vulkan::RenderResources::RenderResources(VkPhysicalDevice physicalDevice, V
 	// create gui renderpass
 	{
 		VkAttachmentDescription attachmentDescription{};
-		attachmentDescription.format = VK_FORMAT_R8G8B8A8_UNORM;
+		attachmentDescription.format = m_swapChain->getImageFormat();
 		attachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
 		attachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 		attachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 		attachmentDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		attachmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		attachmentDescription.initialLayout = VK_IMAGE_LAYOUT_GENERAL;
-		attachmentDescription.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		attachmentDescription.initialLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		attachmentDescription.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
 		VkAttachmentReference attachmentRef{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
 
@@ -227,24 +230,15 @@ sss::vulkan::RenderResources::RenderResources(VkPhysicalDevice physicalDevice, V
 
 		// create renderpass
 		{
-			VkSubpassDependency dependencies[2]{};
+			VkSubpassDependency dependencies[1]{};
 
-			// tonemap -> gui
+			// blit -> gui
 			dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
 			dependencies[0].dstSubpass = 0;
-			dependencies[0].srcStageMask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+			dependencies[0].srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
 			dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-			dependencies[0].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+			dependencies[0].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 			dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-
-			// gui -> blit
-			dependencies[1].srcSubpass = 0;
-			dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-			dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-			dependencies[1].dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-			dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-			dependencies[1].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-			dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
 			VkRenderPassCreateInfo renderPassInfo{ VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
 			renderPassInfo.attachmentCount = 1;
@@ -408,7 +402,7 @@ sss::vulkan::RenderResources::RenderResources(VkPhysicalDevice physicalDevice, V
 		VkDescriptorPoolSize poolSizes[] =
 		{
 			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, FRAMES_IN_FLIGHT },
-			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, FRAMES_IN_FLIGHT * (1 /*shadow maps*/ + 4 /*depth and diffuse for 2 sss blur passes*/ + 2/* postprocessing input*/) + (textureCount + 4 /*cubemaps*/) + 1 /*imgui*/ },
+			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, FRAMES_IN_FLIGHT * (1 /*shadow maps*/ + 4 /*depth and diffuse for 2 sss blur passes*/ + 4/* postprocessing input*/) + (textureCount + 4 /*cubemaps*/) + 1 /*imgui*/ },
 			{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, FRAMES_IN_FLIGHT * 3 /* 2 sss blur passes + 1 postprocessing pass*/ }
 		};
 
@@ -533,9 +527,11 @@ sss::vulkan::RenderResources::RenderResources(VkPhysicalDevice physicalDevice, V
 		{
 			VkDescriptorSetLayoutBinding bindings[] =
 			{
-				{ 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, &m_pointSamplerClamp },
+				{ 0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr },
 				{ 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, &m_pointSamplerClamp },
-				{ 2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr },
+				{ 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, &m_pointSamplerClamp },
+				{ 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, &m_pointSamplerClamp },
+				{ 4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, &m_linearSamplerClamp },
 			};
 
 			VkDescriptorSetLayoutCreateInfo layoutCreateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
@@ -701,7 +697,7 @@ void sss::vulkan::RenderResources::createResizableResources(uint32_t width, uint
 		// tonemap result
 		{
 			imageCreateInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-			imageCreateInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+			imageCreateInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 
 			m_tonemappedImage[i] = std::make_unique<Image>(m_physicalDevice, m_device, imageCreateInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 				0, VK_IMAGE_VIEW_TYPE_2D, VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 });
@@ -743,157 +739,187 @@ void sss::vulkan::RenderResources::createResizableResources(uint32_t width, uint
 				util::fatalExit("Failed to create framebuffer!", EXIT_FAILURE);
 			}
 		}
+	}
 
-		// gui framebuffer
+	// update descriptor sets
+	for (size_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+	{
+		VkDescriptorBufferInfo bufferInfos[1];
+		VkDescriptorImageInfo imageInfos[12];
+		VkWriteDescriptorSet descriptorWrites[13];
+		size_t bufferInfoCount = 0;
+		size_t imageInfoCount = 0;
+		size_t writeCount = 0;
+
+		// lighting set
 		{
-			VkImageView framebufferAttachment = m_tonemappedImage[i]->getView();
+			// constant buffer
+			auto &bufferInfo = bufferInfos[bufferInfoCount++];
+			bufferInfo.buffer = m_constantBuffer[i]->getBuffer();
+			bufferInfo.offset = 0;
+			bufferInfo.range = m_constantBuffer[i]->getSize();
 
-			VkFramebufferCreateInfo framebufferCreateInfo{ VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
-			framebufferCreateInfo.renderPass = m_guiRenderPass;
-			framebufferCreateInfo.attachmentCount = 1;
-			framebufferCreateInfo.pAttachments = &framebufferAttachment;
-			framebufferCreateInfo.width = width;
-			framebufferCreateInfo.height = height;
-			framebufferCreateInfo.layers = 1;
+			auto &constantBufferWrite = descriptorWrites[writeCount++];
+			constantBufferWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+			constantBufferWrite.dstSet = m_lightingDescriptorSet[i];
+			constantBufferWrite.dstBinding = 0;
+			constantBufferWrite.descriptorCount = 1;
+			constantBufferWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			constantBufferWrite.pBufferInfo = &bufferInfo;
 
-			if (vkCreateFramebuffer(m_device, &framebufferCreateInfo, nullptr, &m_guiFramebuffers[i]) != VK_SUCCESS)
-			{
-				util::fatalExit("Failed to create framebuffer!", EXIT_FAILURE);
-			}
+			// shadow map
+			auto &shadowImageInfo = imageInfos[imageInfoCount++];
+			shadowImageInfo.sampler = nullptr;
+			shadowImageInfo.imageView = m_shadowImage[i]->getView();
+			shadowImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+			auto &shadowMapWrite = descriptorWrites[writeCount++];
+			shadowMapWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+			shadowMapWrite.dstSet = m_lightingDescriptorSet[i];
+			shadowMapWrite.dstBinding = 1;
+			shadowMapWrite.descriptorCount = 1;
+			shadowMapWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			shadowMapWrite.pImageInfo = &shadowImageInfo;
 		}
 
-		// update descriptor sets
+		// blur set
+		for (size_t j = 0; j < 2; ++j)
 		{
-			VkDescriptorBufferInfo bufferInfos[1];
-			VkDescriptorImageInfo imageInfos[10];
-			VkWriteDescriptorSet descriptorWrites[11];
-			size_t bufferInfoCount = 0;
-			size_t imageInfoCount = 0;
-			size_t writeCount = 0;
+			// input
+			auto &inputImageInfo = imageInfos[imageInfoCount++];
+			inputImageInfo.sampler = nullptr;
+			inputImageInfo.imageView = (j == 0) ? m_diffuse0Image[i]->getView() : m_diffuse1Image[i]->getView();
+			inputImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-			// lighting set
-			{
-				// constant buffer
-				auto &bufferInfo = bufferInfos[bufferInfoCount++];
-				bufferInfo.buffer = m_constantBuffer[i]->getBuffer();
-				bufferInfo.offset = 0;
-				bufferInfo.range = m_constantBuffer[i]->getSize();
+			auto &inputWrite = descriptorWrites[writeCount++];
+			inputWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+			inputWrite.dstSet = m_sssBlurDescriptorSet[i * 2 + j];
+			inputWrite.dstBinding = 0;
+			inputWrite.descriptorCount = 1;
+			inputWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			inputWrite.pImageInfo = &inputImageInfo;
 
-				auto &constantBufferWrite = descriptorWrites[writeCount++];
-				constantBufferWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-				constantBufferWrite.dstSet = m_lightingDescriptorSet[i];
-				constantBufferWrite.dstBinding = 0;
-				constantBufferWrite.descriptorCount = 1;
-				constantBufferWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-				constantBufferWrite.pBufferInfo = &bufferInfo;
+			// depth
+			auto &depthImageInfo = imageInfos[imageInfoCount++];
+			depthImageInfo.sampler = nullptr;
+			depthImageInfo.imageView = m_depthImageView[i];
+			depthImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-				// shadow map
-				auto &shadowImageInfo = imageInfos[imageInfoCount++];
-				shadowImageInfo.sampler = nullptr;
-				shadowImageInfo.imageView = m_shadowImage[i]->getView();
-				shadowImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			auto &depthWrite = descriptorWrites[writeCount++];
+			depthWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+			depthWrite.dstSet = m_sssBlurDescriptorSet[i * 2 + j];
+			depthWrite.dstBinding = 1;
+			depthWrite.descriptorCount = 1;
+			depthWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			depthWrite.pImageInfo = &depthImageInfo;
 
-				auto &shadowMapWrite = descriptorWrites[writeCount++];
-				shadowMapWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-				shadowMapWrite.dstSet = m_lightingDescriptorSet[i];
-				shadowMapWrite.dstBinding = 1;
-				shadowMapWrite.descriptorCount = 1;
-				shadowMapWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-				shadowMapWrite.pImageInfo = &shadowImageInfo;
-			}
+			// result
+			auto &resultImageInfo = imageInfos[imageInfoCount++];
+			resultImageInfo.sampler = nullptr;
+			resultImageInfo.imageView = (j == 0) ? m_diffuse1Image[i]->getView() : m_diffuse0Image[i]->getView();
+			resultImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-			// blur set
-			for (size_t j = 0; j < 2; ++j)
-			{
-				// input
-				auto &inputImageInfo = imageInfos[imageInfoCount++];
-				inputImageInfo.sampler = nullptr;
-				inputImageInfo.imageView = (j == 0) ? m_diffuse0Image[i]->getView() : m_diffuse1Image[i]->getView();
-				inputImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			auto &resultWrite = descriptorWrites[writeCount++];
+			resultWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+			resultWrite.dstSet = m_sssBlurDescriptorSet[i * 2 + j];
+			resultWrite.dstBinding = 2;
+			resultWrite.descriptorCount = 1;
+			resultWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+			resultWrite.pImageInfo = &resultImageInfo;
+		}
 
-				auto &inputWrite = descriptorWrites[writeCount++];
-				inputWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-				inputWrite.dstSet = m_sssBlurDescriptorSet[i * 2 + j];
-				inputWrite.dstBinding = 0;
-				inputWrite.descriptorCount = 1;
-				inputWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-				inputWrite.pImageInfo = &inputImageInfo;
+		// postprocessing set
+		{
+			// result
+			auto &resultImageInfo = imageInfos[imageInfoCount++];
+			resultImageInfo.sampler = nullptr;
+			resultImageInfo.imageView = m_tonemappedImage[i]->getView();
+			resultImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-				// depth
-				auto &depthImageInfo = imageInfos[imageInfoCount++];
-				depthImageInfo.sampler = nullptr;
-				depthImageInfo.imageView = m_depthImageView[i];
-				depthImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			auto &resultWrite = descriptorWrites[writeCount++];
+			resultWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+			resultWrite.dstSet = m_postprocessingDescriptorSet[i];
+			resultWrite.dstBinding = 0;
+			resultWrite.descriptorCount = 1;
+			resultWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+			resultWrite.pImageInfo = &resultImageInfo;
 
-				auto &depthWrite = descriptorWrites[writeCount++];
-				depthWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-				depthWrite.dstSet = m_sssBlurDescriptorSet[i * 2 + j];
-				depthWrite.dstBinding = 1;
-				depthWrite.descriptorCount = 1;
-				depthWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-				depthWrite.pImageInfo = &depthImageInfo;
+			// color
+			auto &colorImageInfo = imageInfos[imageInfoCount++];
+			colorImageInfo.sampler = nullptr;
+			colorImageInfo.imageView = m_colorImage[i]->getView();
+			colorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-				// result
-				auto &resultImageInfo = imageInfos[imageInfoCount++];
-				resultImageInfo.sampler = nullptr;
-				resultImageInfo.imageView = (j == 0) ? m_diffuse1Image[i]->getView() : m_diffuse0Image[i]->getView();
-				resultImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+			auto &colorWrite = descriptorWrites[writeCount++];
+			colorWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+			colorWrite.dstSet = m_postprocessingDescriptorSet[i];
+			colorWrite.dstBinding = 1;
+			colorWrite.descriptorCount = 1;
+			colorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			colorWrite.pImageInfo = &colorImageInfo;
 
-				auto &resultWrite = descriptorWrites[writeCount++];
-				resultWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-				resultWrite.dstSet = m_sssBlurDescriptorSet[i * 2 + j];
-				resultWrite.dstBinding = 2;
-				resultWrite.descriptorCount = 1;
-				resultWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-				resultWrite.pImageInfo = &resultImageInfo;
-			}
+			// diffuse
+			auto &diffuseImageInfo = imageInfos[imageInfoCount++];
+			diffuseImageInfo.sampler = nullptr;
+			diffuseImageInfo.imageView = m_diffuse0Image[i]->getView();
+			diffuseImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-			// postprocessing set
-			{
-				// color
-				auto &colorImageInfo = imageInfos[imageInfoCount++];
-				colorImageInfo.sampler = nullptr;
-				colorImageInfo.imageView = m_colorImage[i]->getView();
-				colorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			auto &diffuseWrite = descriptorWrites[writeCount++];
+			diffuseWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+			diffuseWrite.dstSet = m_postprocessingDescriptorSet[i];
+			diffuseWrite.dstBinding = 2;
+			diffuseWrite.descriptorCount = 1;
+			diffuseWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			diffuseWrite.pImageInfo = &diffuseImageInfo;
 
-				auto &colorWrite = descriptorWrites[writeCount++];
-				colorWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-				colorWrite.dstSet = m_postprocessingDescriptorSet[i];
-				colorWrite.dstBinding = 0;
-				colorWrite.descriptorCount = 1;
-				colorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-				colorWrite.pImageInfo = &colorImageInfo;
+			// depth
+			auto &depthImageInfo = imageInfos[imageInfoCount++];
+			depthImageInfo.sampler = nullptr;
+			depthImageInfo.imageView = m_depthImageView[i];
+			depthImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-				// diffuse
-				auto &diffuseImageInfo = imageInfos[imageInfoCount++];
-				diffuseImageInfo.sampler = nullptr;
-				diffuseImageInfo.imageView = m_diffuse0Image[i]->getView();
-				diffuseImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			auto &depthWrite = descriptorWrites[writeCount++];
+			depthWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+			depthWrite.dstSet = m_postprocessingDescriptorSet[i];
+			depthWrite.dstBinding = 3;
+			depthWrite.descriptorCount = 1;
+			depthWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			depthWrite.pImageInfo = &depthImageInfo;
 
-				auto &diffuseWrite = descriptorWrites[writeCount++];
-				diffuseWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-				diffuseWrite.dstSet = m_postprocessingDescriptorSet[i];
-				diffuseWrite.dstBinding = 1;
-				diffuseWrite.descriptorCount = 1;
-				diffuseWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-				diffuseWrite.pImageInfo = &diffuseImageInfo;
+			// history
+			auto &historyImageInfo = imageInfos[imageInfoCount++];
+			historyImageInfo.sampler = nullptr;
+			historyImageInfo.imageView = m_tonemappedImage[(i + FRAMES_IN_FLIGHT - 1) % FRAMES_IN_FLIGHT]->getView();
+			historyImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-				// result
-				auto &resultImageInfo = imageInfos[imageInfoCount++];
-				resultImageInfo.sampler = nullptr;
-				resultImageInfo.imageView = m_tonemappedImage[i]->getView();
-				resultImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+			auto &historyWrite = descriptorWrites[writeCount++];
+			historyWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+			historyWrite.dstSet = m_postprocessingDescriptorSet[i];
+			historyWrite.dstBinding = 4;
+			historyWrite.descriptorCount = 1;
+			historyWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			historyWrite.pImageInfo = &historyImageInfo;
+		}
 
-				auto &resultWrite = descriptorWrites[writeCount++];
-				resultWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-				resultWrite.dstSet = m_postprocessingDescriptorSet[i];
-				resultWrite.dstBinding = 2;
-				resultWrite.descriptorCount = 1;
-				resultWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-				resultWrite.pImageInfo = &resultImageInfo;
-			}
+		vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(sizeof(descriptorWrites) / sizeof(descriptorWrites[0])), descriptorWrites, 0, nullptr);
+	}
 
-			vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(sizeof(descriptorWrites) / sizeof(descriptorWrites[0])), descriptorWrites, 0, nullptr);
+	// gui framebuffer
+	for (size_t i = 0; i < m_swapChain->getImageCount(); ++i)
+	{
+		VkImageView framebufferAttachment = m_swapChain->getImageView(i);
+
+		VkFramebufferCreateInfo framebufferCreateInfo{ VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+		framebufferCreateInfo.renderPass = m_guiRenderPass;
+		framebufferCreateInfo.attachmentCount = 1;
+		framebufferCreateInfo.pAttachments = &framebufferAttachment;
+		framebufferCreateInfo.width = width;
+		framebufferCreateInfo.height = height;
+		framebufferCreateInfo.layers = 1;
+
+		if (vkCreateFramebuffer(m_device, &framebufferCreateInfo, nullptr, &m_guiFramebuffers[i]) != VK_SUCCESS)
+		{
+			util::fatalExit("Failed to create framebuffer!", EXIT_FAILURE);
 		}
 	}
 }
@@ -912,6 +938,10 @@ void sss::vulkan::RenderResources::destroyResizeableResources()
 
 		vkDestroyFramebuffer(m_device, m_shadowFramebuffers[i], nullptr);
 		vkDestroyFramebuffer(m_device, m_mainFramebuffers[i], nullptr);
+	}
+
+	for (size_t i = 0; i < m_swapChain->getImageCount(); ++i)
+	{
 		vkDestroyFramebuffer(m_device, m_guiFramebuffers[i], nullptr);
 	}
 }

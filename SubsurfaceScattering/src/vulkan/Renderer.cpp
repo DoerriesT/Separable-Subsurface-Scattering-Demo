@@ -8,6 +8,7 @@
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_glfw.h"
 #include "imgui/imgui_impl_vulkan.h"
+#include <glm/ext.hpp>
 
 static void check_vk_result(VkResult err)
 {
@@ -23,7 +24,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 	m_height(height),
 	m_context(windowHandle),
 	m_swapChain(m_context.getPhysicalDevice(), m_context.getDevice(), m_context.getSurface(), m_width, m_height),
-	m_renderResources(m_context.getPhysicalDevice(), m_context.getDevice(), m_context.getGraphicsCommandPool(), m_width, m_height)
+	m_renderResources(m_context.getPhysicalDevice(), m_context.getDevice(), m_context.getGraphicsCommandPool(), m_width, m_height, &m_swapChain)
 {
 	const char *texturePaths[] =
 	{
@@ -83,15 +84,15 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 		Material eyelashesMaterial;
 		eyelashesMaterial.gloss = 0.43f;
 		eyelashesMaterial.specular = 0.162f;
-		eyelashesMaterial.albedo = glm::packUnorm4x8(glm::vec4(24.0f, 24.0f, 24.0f, 255.0f) / 255.0f);
+		eyelashesMaterial.albedo = glm::packUnorm4x8(glm::vec4(4.0f, 4.0f, 4.0f, 255.0f) / 255.0f);
 		eyelashesMaterial.albedoTexture = 0;
 		eyelashesMaterial.normalTexture = 0;
 		eyelashesMaterial.glossTexture = 0;
 		eyelashesMaterial.specularTexture = 0;
 		eyelashesMaterial.cavityTexture = 0;
 
-		std::pair<Material, bool> materials[] = { {headMaterial, true}, {jacketMaterial, false} };// , { browsMaterial, false }, { eyelashesMaterial, false } };
-		const char *meshPaths[] = { "resources/meshes/head.mesh", "resources/meshes/jacket.mesh" };//, "resources/meshes/brows.mesh", "resources/meshes/eyelashes.mesh" };
+		std::pair<Material, bool> materials[] = { {headMaterial, true}, {jacketMaterial, false}, { browsMaterial, false }, { eyelashesMaterial, false } };
+		const char *meshPaths[] = { "resources/meshes/head.mesh", "resources/meshes/jacket.mesh", "resources/meshes/brows.mesh", "resources/meshes/eyelashes.mesh" };
 
 		for (size_t i = 0; i < sizeof(meshPaths) / sizeof(meshPaths[0]); ++i)
 		{
@@ -181,6 +182,29 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 		vkUpdateDescriptorSets(m_context.getDevice(), static_cast<uint32_t>(sizeof(descriptorWrites) / sizeof(descriptorWrites[0])), descriptorWrites, 0, nullptr);
 	}
 
+	// transition tonemapped output image to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL to be used as taa input
+	{
+		auto cmdBuf = vkutil::beginSingleTimeCommands(m_context.getDevice(), m_context.getGraphicsCommandPool());
+		{
+			VkImageMemoryBarrier imageBarriers[FRAMES_IN_FLIGHT];
+			for (size_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+			{
+				imageBarriers[i] = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+				imageBarriers[i].srcAccessMask = 0;
+				imageBarriers[i].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+				imageBarriers[i].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+				imageBarriers[i].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				imageBarriers[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				imageBarriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				imageBarriers[i].image = m_renderResources.m_tonemappedImage[i]->getImage();
+				imageBarriers[i].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			}
+			
+			vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, FRAMES_IN_FLIGHT, imageBarriers);
+		}
+		vkutil::endSingleTimeCommands(m_context.getDevice(), m_context.getGraphicsQueue(), m_context.getGraphicsCommandPool(), cmdBuf);
+	}
+
 	// imgui
 	{
 		// Setup Dear ImGui context
@@ -214,6 +238,30 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 		ImGui_ImplVulkan_CreateFontsTexture(cmdBuf);
 		vkutil::endSingleTimeCommands(m_context.getDevice(), m_context.getGraphicsQueue(), m_context.getGraphicsCommandPool(), cmdBuf);
 	}
+
+	// generate halton jitter offsets
+	{
+		auto halton = [](size_t index, size_t base)
+		{
+			float f = 1.0f;
+			float r = 0.0f;
+
+			while (index > 0)
+			{
+				f /= base;
+				r += f * (index % base);
+				index /= base;
+			}
+
+			return r;
+		};
+
+		for (size_t i = 0; i < 8; ++i)
+		{
+			m_haltonX[i] = halton(i + 1, 2) * 2.0f - 1.0f;
+			m_haltonY[i] = halton(i + 1, 3) * 2.0f - 1.0f;
+		}
+	}
 }
 
 sss::vulkan::Renderer::~Renderer()
@@ -224,10 +272,20 @@ sss::vulkan::Renderer::~Renderer()
 	ImGui::DestroyContext();
 }
 
-void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::mat4 &shadowMatrix, const glm::vec4 &lightPositionRadius, const glm::vec4 &lightColorInvSqrAttRadius, const glm::vec4 &cameraPosition, bool subsurfaceScatteringEnabled)
+void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, 
+	const glm::mat4 &shadowMatrix, 
+	const glm::vec4 &lightPositionRadius, 
+	const glm::vec4 &lightColorInvSqrAttRadius, 
+	const glm::vec4 &cameraPosition, 
+	bool subsurfaceScatteringEnabled,
+	float sssWidth,
+	bool taaEnabled)
 {
 	RenderResources &rr = m_renderResources;
 	uint32_t resourceIndex = m_frameIndex % FRAMES_IN_FLIGHT;
+
+	const glm::mat4 jitterMatrix = glm::translate(glm::vec3(m_haltonX[m_frameIndex % 8] / m_width, m_haltonY[m_frameIndex % 8] / m_height, 0.0f));
+	const glm::mat4 jitteredViewProjection = taaEnabled ? jitterMatrix * viewProjection : viewProjection;
 
 	// wait until gpu finished work on all per frame resources
 	vkWaitForFences(m_context.getDevice(), 1, &rr.m_frameFinishedFence[resourceIndex], VK_TRUE, std::numeric_limits<uint64_t>::max());
@@ -246,7 +304,7 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 
 	// update constant buffer content
 	uint8_t *mappedPtr = rr.m_constantBuffer[resourceIndex]->map();
-	((glm::mat4 *)mappedPtr)[0] = viewProjection;
+	((glm::mat4 *)mappedPtr)[0] = jitteredViewProjection;
 	((glm::mat4 *)mappedPtr)[1] = shadowMatrix;
 	((glm::vec4 *)mappedPtr)[8] = lightPositionRadius;
 	((glm::vec4 *)mappedPtr)[9] = lightColorInvSqrAttRadius;
@@ -437,7 +495,7 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 				vkCmdSetViewport(curCmdBuf, 0, 1, &viewport);
 				vkCmdSetScissor(curCmdBuf, 0, 1, &scissor);
 
-				glm::mat4 invModelViewProjectionMatrix = glm::inverse(viewProjection);
+				glm::mat4 invModelViewProjectionMatrix = glm::inverse(jitteredViewProjection);
 
 				vkCmdPushConstants(curCmdBuf, rr.m_skyboxPipeline.second, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(invModelViewProjectionMatrix), &invModelViewProjectionMatrix);
 
@@ -483,7 +541,7 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 				PushConsts pushConsts;
 				pushConsts.texelSize = 1.0f / glm::vec2(m_width, m_height);
 				pushConsts.dir = glm::vec2(1.0f, 0.0f);
-				pushConsts.sssWidth = 0.01f * 1.0f / tanf(glm::radians(40.0f) * 0.5f) * (m_height / static_cast<float>(m_width));
+				pushConsts.sssWidth = sssWidth * 1.0f / tanf(glm::radians(40.0f) * 0.5f) * (m_height / static_cast<float>(m_width));
 
 				vkCmdPushConstants(curCmdBuf, rr.m_sssBlurPipeline0.second, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConsts), &pushConsts);
 
@@ -536,7 +594,7 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 				PushConsts pushConsts;
 				pushConsts.texelSize = 1.0f / glm::vec2(m_width, m_height);
 				pushConsts.dir = glm::vec2(0.0f, 1.0f);
-				pushConsts.sssWidth = 0.01f * 1.0f / tanf(glm::radians(40.0f) * 0.5f) * (m_height / static_cast<float>(m_width));
+				pushConsts.sssWidth = sssWidth * 1.0f / tanf(glm::radians(40.0f) * 0.5f) * (m_height / static_cast<float>(m_width));
 
 				vkCmdPushConstants(curCmdBuf, rr.m_sssBlurPipeline1.second, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConsts), &pushConsts);
 
@@ -581,30 +639,24 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 
 			vkCmdBindDescriptorSets(curCmdBuf, VK_PIPELINE_BIND_POINT_COMPUTE, rr.m_posprocessingPipeline.second, 0, 1, &rr.m_postprocessingDescriptorSet[resourceIndex], 0, nullptr);
 
-			float exposure = 1.0f;
+			using namespace glm;
+			struct PushConsts
+			{
+				mat4 reprojectionMatrix;
+				vec2 texelSize;
+				float exposure;
+				uint taa;
+			};
 
-			vkCmdPushConstants(curCmdBuf, rr.m_posprocessingPipeline.second, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(exposure), &exposure);
+			PushConsts pushConsts;
+			pushConsts.reprojectionMatrix = m_previousViewProjection * glm::inverse(viewProjection);
+			pushConsts.texelSize = 1.0f / glm::vec2(m_width, m_height);
+			pushConsts.exposure = 1.0f;
+			pushConsts.taa = taaEnabled ? 1 : 0;
+
+			vkCmdPushConstants(curCmdBuf, rr.m_posprocessingPipeline.second, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConsts), &pushConsts);
 
 			vkCmdDispatch(curCmdBuf, (m_width + 15) / 16, (m_height + 15) / 16, 1);
-		}
-
-		// gui renderpass
-		{
-			VkClearValue clearValue;
-
-			VkRenderPassBeginInfo renderPassInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
-			renderPassInfo.renderPass = rr.m_guiRenderPass;
-			renderPassInfo.framebuffer = rr.m_guiFramebuffers[resourceIndex];
-			renderPassInfo.renderArea.offset = { 0, 0 };
-			renderPassInfo.renderArea.extent = { m_width, m_height };
-			renderPassInfo.clearValueCount = 1;
-			renderPassInfo.pClearValues = &clearValue;
-
-			vkCmdBeginRenderPass(curCmdBuf, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-			ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), curCmdBuf);
-
-			vkCmdEndRenderPass(curCmdBuf);
 		}
 	}
 	vkEndCommandBuffer(curCmdBuf);
@@ -645,7 +697,7 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 	{
 		// barriers
 		{
-			VkImageMemoryBarrier imageBarriers[1];
+			VkImageMemoryBarrier imageBarriers[2];
 			// transition backbuffer image layout to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
 			imageBarriers[0] = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
 			imageBarriers[0].srcAccessMask = 0;
@@ -657,7 +709,18 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 			imageBarriers[0].image = m_swapChain.getImage(swapChainImageIndex);
 			imageBarriers[0].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-			vkCmdPipelineBarrier(curCmdBuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, imageBarriers);
+			// transition tonemapped image layout to VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+			imageBarriers[1] = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+			imageBarriers[1].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+			imageBarriers[1].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			imageBarriers[1].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+			imageBarriers[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			imageBarriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageBarriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageBarriers[1].image = rr.m_tonemappedImage[resourceIndex]->getImage();
+			imageBarriers[1].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+			vkCmdPipelineBarrier(curCmdBuf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 2, imageBarriers);
 		}
 
 		// blit color image to backbuffer
@@ -671,20 +734,41 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 			vkCmdBlitImage(curCmdBuf, rr.m_tonemappedImage[resourceIndex]->getImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_swapChain.getImage(swapChainImageIndex), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_NEAREST);
 		}
 
-		// transition backbuffer image layout to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+		// gui renderpass
 		{
-			VkImageMemoryBarrier imageBarrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-			imageBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-			imageBarrier.dstAccessMask = 0;
-			imageBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			imageBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-			imageBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			imageBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			imageBarrier.image = m_swapChain.getImage(swapChainImageIndex);
-			imageBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			VkClearValue clearValue;
 
-			vkCmdPipelineBarrier(curCmdBuf, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &imageBarrier);
+			VkRenderPassBeginInfo renderPassInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+			renderPassInfo.renderPass = rr.m_guiRenderPass;
+			renderPassInfo.framebuffer = rr.m_guiFramebuffers[swapChainImageIndex];
+			renderPassInfo.renderArea.offset = { 0, 0 };
+			renderPassInfo.renderArea.extent = { m_width, m_height };
+			renderPassInfo.clearValueCount = 1;
+			renderPassInfo.pClearValues = &clearValue;
+
+			vkCmdBeginRenderPass(curCmdBuf, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+			ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), curCmdBuf);
+
+			vkCmdEndRenderPass(curCmdBuf);
 		}
+
+		// transition tonemapped image layout to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL for taa in next frame
+		{
+			VkImageMemoryBarrier imageBarriers[1];
+			imageBarriers[0] = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+			imageBarriers[0].srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			imageBarriers[0].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			imageBarriers[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			imageBarriers[0].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageBarriers[0].image = rr.m_tonemappedImage[resourceIndex]->getImage();
+			imageBarriers[0].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+			vkCmdPipelineBarrier(curCmdBuf, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, imageBarriers);
+		}
+		
 	}
 	vkEndCommandBuffer(curCmdBuf);
 
@@ -725,6 +809,7 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection, const glm::m
 	}
 
 	++m_frameIndex;
+	m_previousViewProjection = viewProjection;
 }
 
 float sss::vulkan::Renderer::getSSSEffectTiming() const
@@ -734,8 +819,31 @@ float sss::vulkan::Renderer::getSSSEffectTiming() const
 
 void sss::vulkan::Renderer::resize(uint32_t width, uint32_t height)
 {
+	m_swapChain.recreate(width, height);
 	m_renderResources.resize(width, height);
 	m_width = width;
 	m_height = height;
-	m_swapChain.recreate(width, height);
+
+	// transition tonemapped output image to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL to be used as taa input
+	{
+		auto cmdBuf = vkutil::beginSingleTimeCommands(m_context.getDevice(), m_context.getGraphicsCommandPool());
+		{
+			VkImageMemoryBarrier imageBarriers[FRAMES_IN_FLIGHT];
+			for (size_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+			{
+				imageBarriers[i] = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+				imageBarriers[i].srcAccessMask = 0;
+				imageBarriers[i].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+				imageBarriers[i].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+				imageBarriers[i].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				imageBarriers[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				imageBarriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				imageBarriers[i].image = m_renderResources.m_tonemappedImage[i]->getImage();
+				imageBarriers[i].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			}
+
+			vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, FRAMES_IN_FLIGHT, imageBarriers);
+		}
+		vkutil::endSingleTimeCommands(m_context.getDevice(), m_context.getGraphicsQueue(), m_context.getGraphicsCommandPool(), cmdBuf);
+	}
 }

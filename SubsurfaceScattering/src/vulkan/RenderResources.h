@@ -14,6 +14,8 @@ namespace sss
 			SHADOW_RESOLUTION = 2048,
 		};
 
+		class SwapChain;
+
 		struct RenderResources
 		{
 		public:
@@ -21,6 +23,7 @@ namespace sss
 			VkPhysicalDevice m_physicalDevice;
 			VkDevice m_device;
 			VkCommandPool m_commandPool;
+			SwapChain *m_swapChain;
 			VkSemaphore m_swapChainImageAvailableSemaphores[FRAMES_IN_FLIGHT];
 			VkSemaphore m_renderFinishedSemaphores[FRAMES_IN_FLIGHT];
 			VkFence m_frameFinishedFence[FRAMES_IN_FLIGHT];
@@ -62,7 +65,7 @@ namespace sss
 			VkSampler m_pointSamplerRepeat;
 			VkQueryPool m_queryPool;
 
-			explicit RenderResources(VkPhysicalDevice physicalDevice, VkDevice device, VkCommandPool cmdPool, uint32_t width, uint32_t height);
+			explicit RenderResources(VkPhysicalDevice physicalDevice, VkDevice device, VkCommandPool cmdPool, uint32_t width, uint32_t height, SwapChain *swapChain);
 			RenderResources(const RenderResources &) = delete;
 			RenderResources(const RenderResources &&) = delete;
 			RenderResources &operator= (const RenderResources &) = delete;

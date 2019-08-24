@@ -1,12 +1,17 @@
 #include "PostprocessingPipeline.h"
 #include "utility/Utility.h"
 #include "ShaderModule.h"
+#include <glm/mat4x4.hpp>
 
 namespace
 {
+	using namespace glm;
 	struct PushConsts
 	{
+		mat4 reprojectionMatrix;
+		vec2 texelSize;
 		float exposure;
+		uint taa;
 	};
 }
 

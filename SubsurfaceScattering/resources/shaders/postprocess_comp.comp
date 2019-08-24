@@ -1,20 +1,32 @@
 #version 450
 
+#define LUMA_RGB_TUPLE vec3(0.2126, 0.7152, 0.0722)
+#define LOCAL_SIZE_X 16
+#define LOCAL_SIZE_Y 16
+
 struct PushConsts
 {
+	mat4 reprojectionMatrix;
+	vec2 texelSize;
 	float exposure;
+	uint taa;
 };
 
-layout(set = 0, binding = 0) uniform sampler2D uColorTexture;
-layout(set = 0, binding = 1) uniform sampler2D uDiffuseTexture;
-layout(set = 0, binding = 2, rgba8) uniform writeonly image2D uResultImage;
+layout(set = 0, binding = 0, rgba8) uniform writeonly image2D uResultImage;
+layout(set = 0, binding = 1) uniform sampler2D uColorTexture;
+layout(set = 0, binding = 2) uniform sampler2D uDiffuseTexture;
+layout(set = 0, binding = 3) uniform sampler2D uDepthTexture;
+layout(set = 0, binding = 4) uniform sampler2D uHistoryTexture;
+
 
 layout(push_constant) uniform PUSH_CONSTS 
 {
 	PushConsts uPushConsts;
 };
 
-layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+shared vec3 ldsNeighborHood[LOCAL_SIZE_X][LOCAL_SIZE_Y];
+
+layout (local_size_x = LOCAL_SIZE_X, local_size_y = LOCAL_SIZE_Y, local_size_z = 1) in;
 
 vec3 uncharted2Tonemap(vec3 x)
 {
@@ -35,6 +47,77 @@ vec3 accurateLinearToSRGB(in vec3 linearCol)
 	return sRGB;
 }
 
+vec3 rgbToYcocg(vec3 color)
+{
+	vec3 result;
+	result.x = dot(color, vec3(  1, 2,  1 ) );
+	result.y = dot(color, vec3(  2, 0, -2 ) );
+	result.z = dot(color, vec3( -1, 2, -1 ) );
+	
+	return result;
+}
+
+vec3 ycocgToRgb(vec3 color )
+{
+	float y  = color.x * 0.25;
+	float co = color.y * 0.25;
+	float cg = color.z * 0.25;
+
+	vec3 result;
+	result.r = y + co - cg;
+	result.g = y + cg;
+	result.b = y - co - cg;
+
+	return result;
+}
+
+vec3 sampleHistory(vec2 texCoord, vec4 rtMetrics)
+{
+	const float sharpening = 0.5;//uPushConsts.bicubicSharpness;  // [0.0, 1.0]
+
+	vec2 samplePos = texCoord * rtMetrics.xy;
+	vec2 tc1 = floor(samplePos - 0.5) + 0.5;
+	vec2 f = samplePos - tc1;
+	vec2 f2 = f * f;
+	vec2 f3 = f * f2;
+
+	// Catmull-Rom weights
+	const float c = sharpening;
+	vec2 w0 = -(c)       * f3 + (2.0 * c)        * f2 - (c * f);
+	vec2 w1 =  (2.0 - c) * f3 - (3.0 - c)        * f2            + 1.0;
+	vec2 w2 = -(2.0 - c) * f3 + (3.0 -  2.0 * c) * f2 + (c * f);
+	vec2 w3 =  (c)       * f3 - (c)              * f2;
+
+	vec2 w12  = w1 + w2;
+	vec2 tc0  = (tc1 - 1.0)      * rtMetrics.zw;
+	vec2 tc3  = (tc1 + 2.0)      * rtMetrics.zw;
+	vec2 tc12 = (tc1 + w2 / w12) * rtMetrics.zw;
+	
+	// Bicubic filter using bilinear lookups, skipping the 4 corner texels
+	vec4 filtered = vec4(textureLod(uHistoryTexture, vec2(tc12.x, tc0.y ), 0).rgb, 1.0) * (w12.x *  w0.y) +
+	                  vec4(textureLod(uHistoryTexture, vec2(tc0.x,  tc12.y), 0).rgb, 1.0) * ( w0.x * w12.y) +
+	                  vec4(textureLod(uHistoryTexture, vec2(tc12.x, tc12.y), 0).rgb, 1.0) * (w12.x * w12.y) +  // Center pixel
+	                  vec4(textureLod(uHistoryTexture, vec2(tc3.x,  tc12.y), 0).rgb, 1.0) * ( w3.x * w12.y) +
+	                  vec4(textureLod(uHistoryTexture, vec2(tc12.x, tc3.y ), 0).rgb, 1.0) * (w12.x *  w3.y);
+	
+	return filtered.rgb * (1.0 / filtered.a);
+}
+
+vec3 clipAABB(vec3 point, vec3 aabbMin, vec3 aabbMax)
+{
+    //Clips towards AABB center for better perfomance
+    vec3 center   = 0.5 * (aabbMax + aabbMin);
+    vec3 halfSize = 0.5 * (aabbMax - aabbMin) + 1e-5;
+    //Relative position from the center
+    vec3 clip     = point - center;
+    //Normalize relative position
+    vec3 unit     = clip / halfSize;
+    vec3 absUnit  = abs(unit);
+    float maxUnit = max(absUnit.x, max(absUnit.y, absUnit.z));
+	
+	return (maxUnit > 1.0) ? clip * (1.0 / maxUnit) + center : point;
+}
+
 void main() 
 {
 	vec3 result = texelFetch(uColorTexture, ivec2(gl_GlobalInvocationID.xy), 0).rgb;
@@ -47,6 +130,59 @@ void main()
 	vec3 whiteScale = 1.0/uncharted2Tonemap(vec3(11.2));
 	result *= whiteScale;
 	result = accurateLinearToSRGB(result);
+	
+	if (uPushConsts.taa != 0)
+	{
+		// get current and previous frame's pixel position
+		float depth = texelFetch(uDepthTexture, ivec2(gl_GlobalInvocationID.xy), 0).x;
+		vec2 texcoord = uPushConsts.texelSize * (vec2(gl_GlobalInvocationID.xy) + vec2(0.5));
+		vec4 reprojectedPos = uPushConsts.reprojectionMatrix * vec4(texcoord * 2.0 - 1.0, depth, 1.0);
+		vec2 previousTexCoords = (reprojectedPos.xy / reprojectedPos.w) * 0.5 + 0.5;
+		
+		ldsNeighborHood[gl_LocalInvocationID.x][gl_LocalInvocationID.y] = result;
+		barrier();
+		memoryBarrierShared();
+		
+		// plus shape min max
+		vec3 neighborPlusMin = result;
+		vec3 neighborPlusMax = result;
+		
+		// box shape min max
+		vec3 neighborBoxMin = result;
+		vec3 neighborBoxMax = result;
+		
+		const ivec2 localId = ivec2(gl_LocalInvocationID.xy);
+		
+		for (int y = max(localId.y - 1, 0); y < LOCAL_SIZE_Y && y < localId.y + 2; ++y)
+		{
+			for (int x = max(localId.x - 1, 0); x < LOCAL_SIZE_X&& x < localId.x + 2; ++x)
+			{
+				vec3 n = ldsNeighborHood[x][y];
+				neighborBoxMin = min(neighborBoxMin, n);
+				neighborBoxMax = max(neighborBoxMax, n);
+				neighborPlusMin = ((x == localId.x || y == localId.y) ? min(neighborPlusMin, n) : neighborPlusMin);
+				neighborPlusMax = ((x == localId.x || y == localId.y) ? max(neighborPlusMax, n) : neighborPlusMax);
+			}
+		}
+		
+		// mix between plus shape and box shape to approximate round shape
+		vec3 neighborMin = mix(neighborPlusMin, neighborBoxMin, 0.5);
+		vec3 neighborMax = mix(neighborPlusMax, neighborBoxMax, 0.5);
+		vec3 halfSize = 0.5 * (neighborMax - neighborMin) + 1e-5;
+		neighborMin -= halfSize * 4.0;
+		neighborMax += halfSize * 4.0;
+		
+		
+		// get history color
+		vec3 historyColor = max(sampleHistory(previousTexCoords, vec4(vec2(textureSize(uHistoryTexture, 0).xy), uPushConsts.texelSize)), 0.0.xxx);
+		
+		// clip history color to luminance AABB
+		historyColor = (clipAABB((historyColor), neighborMin, neighborMax));
+		
+		float alpha = 0.875;
+		alpha *= any(lessThan(previousTexCoords, vec2(0.0))) || any(greaterThan(previousTexCoords, vec2(1.0))) ? 0.0 : 1.0;
+		result = mix(result, historyColor, alpha);
+	}
 	
 	imageStore(uResultImage, ivec2(gl_GlobalInvocationID.xy), vec4(result, 1.0));
 }

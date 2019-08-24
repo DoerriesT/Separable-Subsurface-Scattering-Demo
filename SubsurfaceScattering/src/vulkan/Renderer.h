@@ -23,7 +23,9 @@ namespace sss
 				const glm::vec4 &lightPositionRadius, 
 				const glm::vec4 &lightColorInvSqrAttRadius, 
 				const glm::vec4 &cameraPosition, 
-				bool subsurfaceScatteringEnabled);
+				bool subsurfaceScatteringEnabled,
+				float sssWidth,
+				bool taaEnabled);
 			float getSSSEffectTiming() const;
 			void resize(uint32_t width, uint32_t height);
 
@@ -42,6 +44,9 @@ namespace sss
 			std::vector<std::shared_ptr<Texture>> m_textures;
 			std::vector<std::shared_ptr<Mesh>> m_meshes;
 			std::vector<std::pair<Material, bool>> m_materials; // bool is true if SSS
+			glm::mat4 m_previousViewProjection;
+			float m_haltonX[8];
+			float m_haltonY[8];
 		};
 	}
 }
