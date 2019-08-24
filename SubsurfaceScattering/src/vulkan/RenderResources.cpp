@@ -398,7 +398,7 @@ sss::vulkan::RenderResources::RenderResources(VkPhysicalDevice physicalDevice, V
 
 	// create descriptor sets
 	{
-		const size_t textureCount = 9;
+		const size_t textureCount = 10;
 		VkDescriptorPoolSize poolSizes[] =
 		{
 			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, FRAMES_IN_FLIGHT },

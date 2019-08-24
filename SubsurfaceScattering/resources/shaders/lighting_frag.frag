@@ -10,15 +10,17 @@ struct PushConsts
 {
 	float gloss;
 	float specular;
+	float detailNormalScale;
 	uint albedo;
 	uint albedoTexture;
 	uint normalTexture;
 	uint glossTexture;
 	uint specularTexture;
 	uint cavityTexture;
+	uint detailNormalTexture;
 };
 
-layout(set = 0, binding = 0) uniform sampler2D uTextures[9];
+layout(set = 0, binding = 0) uniform sampler2D uTextures[10];
 layout(set = 0, binding = 1) uniform sampler2D uBrdfLUT;
 layout(set = 0, binding = 2) uniform samplerCube uRadianceTexture;
 layout(set = 0, binding = 3) uniform samplerCube uIrradianceTexture;
@@ -176,6 +178,14 @@ float calculateShadowFactor()
 	return 1.0 - shadow;
 }
 
+vec3 blendRnm(vec3 n1, vec3 n2)
+{
+	vec3 t = n1 + vec3(0.0, 0.0, 1.0);
+	vec3 u = n2 * vec3(-1.0, -1.0, 1.0);
+	vec3 r = (t / t.z) * dot(t, u) - u;
+	return r;
+}
+
 void main() 
 {
 	vec3 N = normalize(vNormal);
@@ -185,6 +195,11 @@ void main()
 		const mat3 tbn = calculateTBN(N, vWorldPos, vTexCoord);
 		const vec3 tangentSpaceNormal = texture(uTextures[uPushConsts.normalTexture - 1], vTexCoord).xyz * 2.0 - 1.0;
 		N = normalize(tbn * tangentSpaceNormal);
+	}
+	if (uPushConsts.detailNormalTexture != 0)
+	{
+		const vec3 tangentSpaceNormal = texture(uTextures[uPushConsts.detailNormalTexture - 1], vTexCoord * uPushConsts.detailNormalScale).xyz * 2.0 - 1.0;
+		N = blendRnm(N, normalize(tangentSpaceNormal));
 	}
 	
 	// construct light vector and calculate radiance (factor in NdotL to avoid doing it twice for diffuse and specular term)

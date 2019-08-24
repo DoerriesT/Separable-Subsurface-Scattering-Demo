@@ -33,6 +33,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 		"resources/textures/head_gloss.dds",
 		"resources/textures/head_specular.dds",
 		"resources/textures/head_cavity.dds",
+		"resources/textures/head_detail_normal.dds",
 		"resources/textures/jacket_albedo.dds",
 		"resources/textures/jacket_normal.dds",
 		"resources/textures/jacket_gloss.dds",
@@ -54,42 +55,50 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 		Material headMaterial;
 		headMaterial.gloss = 0.638f;
 		headMaterial.specular = 0.097f;
+		headMaterial.detailNormalScale = 130.0f;
 		headMaterial.albedo = 0xFFFFFFFF;
 		headMaterial.albedoTexture = 1;
 		headMaterial.normalTexture = 2;
 		headMaterial.glossTexture = 3;
 		headMaterial.specularTexture = 4;
 		headMaterial.cavityTexture = 5;
+		headMaterial.detailNormalTexture = 6;
 
 		Material jacketMaterial;
 		jacketMaterial.gloss = 0.376f;
 		jacketMaterial.specular = 0.162f;
+		jacketMaterial.detailNormalScale = 0.0f;
 		jacketMaterial.albedo = 0xFFFFFFFF;
-		jacketMaterial.albedoTexture = 6;
-		jacketMaterial.normalTexture = 7;
-		jacketMaterial.glossTexture = 8;
-		jacketMaterial.specularTexture = 9;
+		jacketMaterial.albedoTexture = 7;
+		jacketMaterial.normalTexture = 8;
+		jacketMaterial.glossTexture = 9;
+		jacketMaterial.specularTexture = 10;
 		jacketMaterial.cavityTexture = 0;
+		jacketMaterial.detailNormalTexture = 0;
 
 		Material browsMaterial;
 		browsMaterial.gloss = 0.0f;
 		browsMaterial.specular = 0.007f;
+		browsMaterial.detailNormalScale = 0.0f;
 		browsMaterial.albedo = glm::packUnorm4x8(glm::vec4(50.0f, 36.0f, 26.0f, 255.0f) / 255.0f);
 		browsMaterial.albedoTexture = 0;
 		browsMaterial.normalTexture = 0;
 		browsMaterial.glossTexture = 0;
 		browsMaterial.specularTexture = 0;
 		browsMaterial.cavityTexture = 0;
+		browsMaterial.detailNormalTexture = 0;
 
 		Material eyelashesMaterial;
 		eyelashesMaterial.gloss = 0.43f;
 		eyelashesMaterial.specular = 0.162f;
+		eyelashesMaterial.detailNormalScale = 0.0f;
 		eyelashesMaterial.albedo = glm::packUnorm4x8(glm::vec4(4.0f, 4.0f, 4.0f, 255.0f) / 255.0f);
 		eyelashesMaterial.albedoTexture = 0;
 		eyelashesMaterial.normalTexture = 0;
 		eyelashesMaterial.glossTexture = 0;
 		eyelashesMaterial.specularTexture = 0;
 		eyelashesMaterial.cavityTexture = 0;
+		eyelashesMaterial.detailNormalTexture = 0;
 
 		std::pair<Material, bool> materials[] = { {headMaterial, true}, {jacketMaterial, false}, { browsMaterial, false }, { eyelashesMaterial, false } };
 		const char *meshPaths[] = { "resources/meshes/head.mesh", "resources/meshes/jacket.mesh", "resources/meshes/brows.mesh", "resources/meshes/eyelashes.mesh" };
@@ -110,7 +119,7 @@ sss::vulkan::Renderer::Renderer(void *windowHandle, uint32_t width, uint32_t hei
 			for (size_t i = 0; i < textureCount; ++i)
 			{
 				auto &textureImageInfo = textureImageInfos[i];
-				textureImageInfo.sampler = m_renderResources.m_linearSamplerClamp;
+				textureImageInfo.sampler = m_renderResources.m_linearSamplerRepeat;
 				textureImageInfo.imageView = m_textures[i]->getView();
 				textureImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 			}
