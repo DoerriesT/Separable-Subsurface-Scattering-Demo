@@ -268,7 +268,8 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection,
 	const glm::vec4 &cameraPosition, 
 	bool subsurfaceScatteringEnabled,
 	float sssWidth,
-	bool taaEnabled)
+	bool taaEnabled,
+	float fovy)
 {
 	RenderResources &rr = m_renderResources;
 	uint32_t resourceIndex = m_frameIndex % FRAMES_IN_FLIGHT;
@@ -530,7 +531,7 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection,
 				PushConsts pushConsts;
 				pushConsts.texelSize = 1.0f / glm::vec2(m_width, m_height);
 				pushConsts.dir = glm::vec2(1.0f, 0.0f);
-				pushConsts.sssWidth = sssWidth * 1.0f / tanf(glm::radians(40.0f) * 0.5f) * (m_height / static_cast<float>(m_width));
+				pushConsts.sssWidth = sssWidth * 1.0f / tanf(fovy * 0.5f) * (m_height / static_cast<float>(m_width));
 
 				vkCmdPushConstants(curCmdBuf, rr.m_sssBlurPipeline0.second, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConsts), &pushConsts);
 
@@ -583,7 +584,7 @@ void sss::vulkan::Renderer::render(const glm::mat4 &viewProjection,
 				PushConsts pushConsts;
 				pushConsts.texelSize = 1.0f / glm::vec2(m_width, m_height);
 				pushConsts.dir = glm::vec2(0.0f, 1.0f);
-				pushConsts.sssWidth = sssWidth * 1.0f / tanf(glm::radians(40.0f) * 0.5f) * (m_height / static_cast<float>(m_width));
+				pushConsts.sssWidth = sssWidth * 1.0f / tanf(fovy * 0.5f) * (m_height / static_cast<float>(m_width));
 
 				vkCmdPushConstants(curCmdBuf, rr.m_sssBlurPipeline1.second, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pushConsts), &pushConsts);
 

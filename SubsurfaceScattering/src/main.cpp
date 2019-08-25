@@ -107,6 +107,8 @@ int main()
 		const float lightThetaRadians = glm::radians(lightTheta);
 		const glm::vec3 lightPos(glm::cos(lightThetaRadians), 0.2f, glm::sin(lightThetaRadians));
 
+		const float fovy = glm::radians(20.0f);
+
 		// calculate view, projection and shadow matrix
 		const glm::mat4 vulkanCorrection =
 		{
@@ -117,8 +119,8 @@ int main()
 		};
 
 		const glm::mat4 viewMatrix = camera.getViewMatrix();
-		const glm::mat4 viewProjection = vulkanCorrection * glm::perspective(glm::radians(40.0f), width / float(height), 0.01f, 50.0f) * viewMatrix;
-		const glm::mat4 shadowMatrix = vulkanCorrection * glm::perspective(glm::radians(60.0f), 1.0f, 0.1f, 3.0f) * glm::lookAt(lightPos, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+		const glm::mat4 viewProjection = vulkanCorrection * glm::perspective(fovy, width / float(height), 0.01f, 50.0f) * viewMatrix;
+		const glm::mat4 shadowMatrix = vulkanCorrection * glm::perspective(glm::radians(40.0f), 1.0f, 0.1f, 3.0f) * glm::lookAt(lightPos, glm::vec3(0.0f, 0.15f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 		
 		if (!window.isIconified())
 		{
@@ -129,7 +131,8 @@ int main()
 				glm::vec4(camera.getPosition(), 0.0f),
 				subsurfaceScatteringEnabled,
 				sssWidth * 0.001f,
-				taaEnabled);
+				taaEnabled,
+				fovy);
 		}
 	}
 
