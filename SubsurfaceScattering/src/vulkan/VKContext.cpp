@@ -5,7 +5,7 @@
 #include <GLFW/glfw3.h>
 #include "utility/Utility.h"
 
-bool g_vulkanDebugCallBackEnabled = true;
+const bool g_vulkanDebugCallBackEnabled = false; // requires VK_EXT_debug_utils extension
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 	VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,

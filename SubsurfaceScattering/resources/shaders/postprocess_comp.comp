@@ -24,7 +24,7 @@ layout(push_constant) uniform PUSH_CONSTS
 	PushConsts uPushConsts;
 };
 
-shared vec3 ldsNeighborHood[LOCAL_SIZE_X][LOCAL_SIZE_Y];
+shared uint ldsNeighborHood[LOCAL_SIZE_X][LOCAL_SIZE_Y];
 
 layout (local_size_x = LOCAL_SIZE_X, local_size_y = LOCAL_SIZE_Y, local_size_z = 1) in;
 
@@ -139,7 +139,7 @@ void main()
 		vec4 reprojectedPos = uPushConsts.reprojectionMatrix * vec4(texcoord * 2.0 - 1.0, depth, 1.0);
 		vec2 previousTexCoords = (reprojectedPos.xy / reprojectedPos.w) * 0.5 + 0.5;
 		
-		ldsNeighborHood[gl_LocalInvocationID.x][gl_LocalInvocationID.y] = result;
+		ldsNeighborHood[gl_LocalInvocationID.x][gl_LocalInvocationID.y] = packUnorm4x8(vec4(result, 1.0));
 		barrier();
 		memoryBarrierShared();
 		
@@ -153,11 +153,14 @@ void main()
 		
 		const ivec2 localId = ivec2(gl_LocalInvocationID.xy);
 		
-		for (int y = max(localId.y - 1, 0); y < LOCAL_SIZE_Y && y < localId.y + 2; ++y)
+		const ivec2 start = max(localId - ivec2(1), ivec2(0));
+		const ivec2 end = min(localId + ivec2(2), ivec2(LOCAL_SIZE_X, LOCAL_SIZE_Y));
+		
+		for (int y = start.y; y < end.y; ++y)
 		{
-			for (int x = max(localId.x - 1, 0); x < LOCAL_SIZE_X&& x < localId.x + 2; ++x)
+			for (int x = start.x; x < end.x; ++x)
 			{
-				vec3 n = ldsNeighborHood[x][y];
+				vec3 n = unpackUnorm4x8(ldsNeighborHood[x][y]).rgb;
 				neighborBoxMin = min(neighborBoxMin, n);
 				neighborBoxMax = max(neighborBoxMax, n);
 				neighborPlusMin = ((x == localId.x || y == localId.y) ? min(neighborPlusMin, n) : neighborPlusMin);
